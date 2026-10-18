@@ -56,6 +56,7 @@ public static class SelfTest
             await Check("render pages", true, () => RenderPages(state));
             await Check("layout", false, () => Report(LayoutIssues, "no cut-off text, nothing wider than the window"));
             await Check("bindings", false, () => Report(BindingErrors.Messages, "no binding errors"));
+            await Check("paste into Notepad", false, () => PasteIntoNotepad(state));
             if (installModels)
             {
                 foreach (var model in LocalModelCatalog.All.Where(m => m != LocalModelCatalog.WhisperTurbo))
@@ -256,6 +257,47 @@ public static class SelfTest
             },
         };
         NativeMethods.SendInput(1, [input], Marshal.SizeOf<NativeMethods.INPUT>());
+    }
+
+    /// <summary>
+    /// The real path end to end: bring Notepad to the front, paste through the delayed clipboard with
+    /// Ctrl+V, read the text before the cursor back through UI Automation, and get the clipboard back.
+    /// </summary>
+    private static async Task<string> PasteIntoNotepad(AppState state)
+    {
+        var before = Process.GetProcessesByName("notepad").Select(p => p.Id).ToHashSet();
+        Process.Start(new ProcessStartInfo("notepad.exe") { UseShellExecute = true })?.Dispose();
+        try
+        {
+            TargetApp? target = null;
+            for (var i = 0; i < 100 && target is null; i++)
+            {
+                await Task.Delay(100);
+                var started = Process.GetProcessesByName("notepad").FirstOrDefault(p => !before.Contains(p.Id) && p.MainWindowHandle != IntPtr.Zero);
+                if (started is not null) target = new TargetApp(started.MainWindowHandle, (uint)started.Id, "notepad.exe", "Editor");
+            }
+            Expect(target is not null, "Notepad did not open a window");
+            target!.Activate();
+            await Task.Delay(700);
+
+            state.Clipboard.Copy("vorher kopiert");
+            await state.PasteAtCursorAsync("Hallo Welt.", target);
+            await Task.Delay(1500);
+            var field = await FocusedFieldReader.ReadAsync(target.ProcessId, TimeSpan.FromSeconds(3));
+            Expect(field is not null, $"could not read Notepad's text field (foreground pid {TargetApp.ForegroundProcessId()}, Notepad {target.ProcessId})");
+            Expect(field!.TextBefore.EndsWith("Hallo Welt.", StringComparison.Ordinal), $"Notepad has '{field.TextBefore}'");
+            await Task.Delay(1500);
+            var clipboard = state.Clipboard.ReadText();
+            Expect(clipboard == "vorher kopiert", $"clipboard has '{clipboard}' after the paste");
+            return "pasted at the cursor, read back through UI Automation, clipboard restored";
+        }
+        finally
+        {
+            foreach (var process in Process.GetProcessesByName("notepad").Where(p => !before.Contains(p.Id)))
+            {
+                try { process.Kill(); } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            }
+        }
     }
 
     private static string SpellChecker()

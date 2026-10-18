@@ -651,7 +651,7 @@ public sealed partial class AppState : ObservableObject
     /// <see cref="AppSettings.RestoreClipboardAfterPaste"/> the previous clipboard comes back once the
     /// target app has read the text. When pasting is impossible, the text stays on the clipboard.
     /// </summary>
-    private async Task PasteAtCursorAsync(string text, TargetApp? target)
+    internal async Task PasteAtCursorAsync(string text, TargetApp? target)
     {
         if (IsPopoverShown)
         {
