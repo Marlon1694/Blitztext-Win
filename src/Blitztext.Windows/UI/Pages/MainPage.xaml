@@ -1,0 +1,219 @@
+<UserControl x:Class="Blitztext.Windows.UI.Pages.MainPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Blitztext.Windows.UI">
+    <StackPanel>
+        <!-- Header -->
+        <Grid Margin="16,14,16,12">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Image Source="/Blitztext;component/Assets/Logo.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality" />
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Blitztext" Style="{StaticResource Text.Title}" FontSize="18" />
+                    <TextBlock Text="für Windows" Style="{StaticResource Text.Caption}" Margin="0,-2,0,0" />
+                </StackPanel>
+            </StackPanel>
+            <Button x:Name="SettingsButton" Style="{StaticResource Button.Icon}" HorizontalAlignment="Right" ToolTip="Einstellungen"
+                    AutomationProperties.Name="Einstellungen" Click="OnSettings">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE713;" FontSize="14" />
+            </Button>
+        </Grid>
+
+        <StackPanel Margin="16,0,16,16">
+            <!-- Setup -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,14"
+                    Visibility="{Binding ShowSetupHero, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="Einrichtung nötig" Style="{StaticResource Text.Headline}" FontSize="16" FontWeight="Bold" />
+                    <TextBlock Margin="0,6,0,10" Style="{StaticResource Text.Caption}" FontSize="12.5"
+                               Text="Installiere ein lokales Sprachmodell. Blitztext transkribiert direkt auf diesem PC, ohne Cloud." />
+                    <Button Style="{StaticResource Button.Filled}" HorizontalAlignment="Left" Click="OnSettings">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE9E9;" Foreground="{DynamicResource Brush.OnAccent}" Margin="0,0,8,0" FontSize="12" />
+                            <TextBlock Text="Einstellungen öffnen" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- Paste hint -->
+            <Border Style="{StaticResource Notice}" Margin="0,0,0,14"
+                    Visibility="{Binding PasteHint, Converter={StaticResource NotNullToVis}}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{DynamicResource Brush.AccentText}"
+                               VerticalAlignment="Top" Margin="0,1,10,0" />
+                    <TextBlock Text="{Binding PasteHint}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text}" />
+                </DockPanel>
+            </Border>
+
+            <!-- Update -->
+            <Border Style="{StaticResource Notice}" Margin="0,0,0,14"
+                    Visibility="{Binding ShowUpdate, Converter={StaticResource BoolToVis}}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Tonal}" Content="Installieren" Click="OnInstallUpdate" />
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="&#xE896;" Foreground="{DynamicResource Brush.AccentText}" Margin="0,0,10,0" />
+                    <TextBlock Text="{Binding UpdateText}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text}" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+
+            <!-- Dictation card -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DictateButton" Style="{StaticResource Button.Base}" BorderThickness="0" Background="Transparent"
+                                Padding="0" Margin="0,0,14,6" IsEnabled="{Binding CanDictate}" Click="OnDictate"
+                                ToolTip="Blitztext jetzt starten" AutomationProperties.Name="Aufnahme starten">
+                            <Grid Width="52" Height="52">
+                                <ui:SpeechBubble Width="52" Height="52" Fill="{DynamicResource Brush.Accent}" />
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE720;" FontSize="21" Foreground="{DynamicResource Brush.OnAccent}" />
+                            </Grid>
+                        </Button>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DictationTitle}" Style="{StaticResource Text.Headline}" />
+                            <TextBlock Text="{Binding DictationSubtitle}" Style="{StaticResource Text.Caption}" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Modell" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" DisplayMemberPath="Label" SelectedValuePath="Id"
+                                  SelectedValue="{Binding SelectedModelId, Mode=TwoWay}" IsEnabled="{Binding CanChangeModel}" />
+                    </Grid>
+
+                    <StackPanel Margin="0,12,0,0" Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVis}}">
+                        <ProgressBar Value="{Binding DownloadProgress, Mode=OneWay}" />
+                        <TextBlock Text="{Binding DictationSubtitle}" Style="{StaticResource Text.Small}" Margin="0,5,0,0" />
+                    </StackPanel>
+
+                    <Button Style="{StaticResource Button.Filled}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnInstallModel"
+                            Visibility="{Binding ShowInstallButton, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE896;" Foreground="{DynamicResource Brush.OnAccent}" Margin="0,0,8,0" FontSize="12" />
+                            <TextBlock Text="{Binding InstallButtonText}" />
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Text="{Binding DownloadError}" Style="{StaticResource Text.Danger}" Margin="0,8,0,0"
+                               Visibility="{Binding DownloadError, Converter={StaticResource NotNullToVis}}" />
+
+                    <DockPanel Margin="0,12,0,0">
+                        <TextBlock DockPanel.Dock="Left" FontSize="11" Margin="0,1,7,0" VerticalAlignment="Top">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+                                    <Setter Property="Text" Value="&#xE72E;" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StatusIsLocal}" Value="False">
+                                            <Setter Property="Text" Value="&#xE8A7;" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding StatusText}" Style="{StaticResource Text.Caption}" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Modes -->
+            <TextBlock Text="Modi" Style="{StaticResource Text.Section}" Margin="4,16,0,8" />
+            <Border Style="{StaticResource Card}" Padding="6">
+                <ItemsControl ItemsSource="{Binding Modes}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource Button.Row}" IsEnabled="{Binding Enabled}" Click="OnMode" Tag="{Binding Type}"
+                                    AutomationProperties.Name="{Binding Name}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="36" Height="36" CornerRadius="18" Background="{Binding TintSoft}" Margin="0,0,12,0">
+                                        <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" Foreground="{Binding Tint}" FontSize="15" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Text.Headline}" FontSize="13.5" />
+                                        <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Text.Caption}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    </StackPanel>
+                                    <ItemsControl Grid.Column="2" Style="{StaticResource KeyBadges}" ItemsSource="{Binding Keys}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- Last text as a sent message -->
+            <StackPanel Margin="44,16,0,0" Visibility="{Binding LastEntry, Converter={StaticResource NotNullToVis}}">
+                <Button Style="{StaticResource Button.Base}" Background="Transparent" BorderThickness="0" Padding="0"
+                        HorizontalAlignment="Right" Click="OnCopyLast" ToolTip="Kopieren">
+                    <Border Background="{Binding LastEntryTint}" CornerRadius="16,16,4,16" Padding="14,10">
+                        <TextBlock Text="{Binding LastEntry.Text}" Style="{StaticResource Text.Body}" FontSize="12.5"
+                                   MaxHeight="54" TextTrimming="WordEllipsis" />
+                    </Border>
+                </Button>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,6,0">
+                    <TextBlock FontSize="11" Margin="0,0,5,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+                                <Setter Property="Text" Value="&#xE8C8;" />
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CopiedLast}" Value="True">
+                                        <Setter Property="Text" Value="&#xE73E;" />
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock FontSize="11">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Small}">
+                                <Setter Property="Text" Value="{Binding LastEntryCaption}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CopiedLast}" Value="True">
+                                        <Setter Property="Text" Value="Kopiert" />
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer -->
+        <Border Style="{StaticResource Divider}" />
+        <Grid Margin="16,10">
+            <TextBlock Text="{Binding VersionText}" Style="{StaticResource Text.Small}" VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource Button.Tonal}" Margin="0,0,8,0" Click="OnAudioFile"
+                        ToolTip="Sprachmemo oder WhatsApp-Sprachnachricht transkribieren. Dateien lassen sich auch auf Blitztext.exe ziehen.">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8D6;" Foreground="{DynamicResource Brush.AccentText}" FontSize="12" Margin="0,0,6,0" />
+                        <TextBlock Text="Audiodatei" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Button.Tonal}" Margin="0,0,8,0" Click="OnHistory">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE81C;" Foreground="{DynamicResource Brush.AccentText}" FontSize="12" Margin="0,0,6,0" />
+                        <TextBlock Text="Verlauf" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Button.Subtle}" Content="Beenden" Click="OnQuit" />
+            </StackPanel>
+        </Grid>
+    </StackPanel>
+</UserControl>

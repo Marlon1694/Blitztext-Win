@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+dist/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# Local models and test audio
+models/
+*.onnx
+*.bin
+*.tar.bz2
+
+# Secrets and local config
+.env
+.env.*
+*.local

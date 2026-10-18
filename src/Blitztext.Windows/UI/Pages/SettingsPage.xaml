@@ -1,0 +1,551 @@
+<UserControl x:Class="Blitztext.Windows.UI.Pages.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Blitztext.Windows.UI">
+    <UserControl.Resources>
+        <Style x:Key="Desc" TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+            <Setter Property="Margin" Value="0,2,0,14" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style x:Key="SectionCard" TargetType="Border" BasedOn="{StaticResource Card}">
+            <Setter Property="Margin" Value="0,0,0,18" />
+            <Setter Property="Padding" Value="16,14,16,6" />
+        </Style>
+        <Style x:Key="StepNumber" TargetType="Border">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="CornerRadius" Value="11" />
+            <Setter Property="Background" Value="{DynamicResource Brush.AccentSoft}" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <Grid Margin="12,12,16,10">
+            <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Click="OnBack" ToolTip="Zurück" AutomationProperties.Name="Zurück">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE72B;" FontSize="13" />
+            </Button>
+            <TextBlock Text="Einstellungen" Style="{StaticResource Text.Headline}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
+
+        <ListBox x:Name="Tabs" Style="{StaticResource Segmented}" Margin="16,0,16,10" SelectionChanged="OnTabChanged" />
+
+        <ScrollViewer x:Name="Scroll" Height="560" VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="16,4,16,8">
+
+                <!-- MARK: General -->
+                <StackPanel x:Name="GeneralPane">
+                    <TextBlock Text="So arbeitet Blitztext" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <Border Style="{StaticResource StepNumber}">
+                                    <TextBlock Text="1" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.AccentText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel>
+                                    <TextBlock Text="Spracherkennung" Style="{StaticResource Text.Caption}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                        <TextBlock FontSize="12" Margin="0,0,6,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+                                                    <Setter Property="Text" Value="&#xE930;" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SpeechReady}" Value="False">
+                                                            <Setter Property="Text" Value="&#xE783;" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding SpeechModelName}" Style="{StaticResource Text.Label}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding SpeechDetail}" Style="{StaticResource Text.Caption}" />
+                                </StackPanel>
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,10">
+                                <Border Style="{StaticResource StepNumber}">
+                                    <TextBlock Text="2" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Brush.AccentText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel>
+                                    <TextBlock Text="KI-Modi (Blitztext+, $%&amp;!, :))" Style="{StaticResource Text.Caption}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                        <TextBlock FontSize="12" Margin="0,0,6,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+                                                    <Setter Property="Text" Value="&#xE930;" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding AiReady}" Value="False">
+                                                            <Setter Property="Text" Value="&#xE783;" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding AiModelName}" Style="{StaticResource Text.Label}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding AiDetail}" Style="{StaticResource Text.Caption}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Tastenkürzel" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <ItemsControl x:Name="HotkeyList" ItemsSource="{Binding Hotkeys}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Text.Label}" />
+                                                <TextBlock Text="Gleiches Kürzel wie ein anderer Modus" Style="{StaticResource Text.Danger}" FontSize="11"
+                                                           Visibility="{Binding HasConflict, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Style="{StaticResource Button.Outline}" MinWidth="150" Click="OnRecordHotkey" Tag="{Binding Type}"
+                                                    Content="{Binding Current}" ToolTip="Klicken und die neue Tastenkombination drücken. Escape bricht ab." />
+                                            <Button Grid.Column="2" Style="{StaticResource Button.Close}" Margin="4,0,0,0" Click="OnResetHotkey" Tag="{Binding Type}"
+                                                    ToolTip="Zurück zum Standard" Visibility="{Binding IsCustom, Converter={StaticResource BoolToVis}}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="CaptureHint" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.AccentText}" Margin="0,0,0,6" Visibility="Collapsed" />
+                            <TextBlock Style="{StaticResource Desc}"
+                                       Text="Standard: Strg + Win halten. Mit Umschalt dazu wird es Blitztext+, mit Alt Blitztext $%&amp;!, Alt + Win ergibt Blitztext :). Eigene Kürzel gehen mit einer Taste (Strg + Alt + D, F13) oder nur mit Zusatztasten (Strg + Umschalt). Strg + Alt entspricht auf deutschen Tastaturen AltGr." />
+                            <TextBlock Text="Modus" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.HotkeyModes}"
+                                     SelectedValue="{Binding HotkeyMode, Mode=TwoWay}" />
+                            <TextBlock Text="{Binding HotkeyModeDescription}" Style="{StaticResource Desc}" Margin="0,6,0,14" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Aufnahme &amp; Einfügen" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <TextBlock Text="Mikrofon" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding Microphones}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                      SelectedValue="{Binding MicrophoneId, Mode=TwoWay}" Margin="0,0,0,14" />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Aufnahme unten am Bildschirm zeigen" IsChecked="{Binding ShowsRecordingIndicator, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Eine kleine lila Anzeige bewegt sich mit deiner Stimme, solange Blitztext aufnimmt und schreibt. Ein Klick darauf stoppt die Aufnahme." />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Ton aus während der Aufnahme" IsChecked="{Binding MuteOutputWhileRecording, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Podcast, Musik oder Video sind stumm, solange Blitztext aufnimmt, und danach sofort wieder zu hören." />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Zwischenablage danach wiederherstellen" IsChecked="{Binding RestoreClipboardAfterPaste, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Was du vorher kopiert hattest, ist nach dem Einfügen wieder da. Der Verlauf der Windows-Zwischenablage (Win + V) übernimmt das Diktat nicht." />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Automatische Absätze" IsChecked="{Binding AutomaticParagraphs, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Lange Diktate und Audiodateien bekommen nach etwa vier Sätzen einen Absatz. Wörter und Satzzeichen bleiben, wie sie sind." />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="An den Text am Cursor anpassen" IsChecked="{Binding FitToSurroundingText, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Setzt Leerzeichen und Groß- und Kleinschreibung passend zum Text davor und danach. Blitztext liest dazu das Textfeld über die Windows-Bedienungshilfen (UI Automation), Passwortfelder nie." />
+
+                            <TextBlock Text="Verlauf aufbewahren" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.RetentionOptions}"
+                                     SelectedValue="{Binding HistoryRetention, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,6,0,14" Text="Nur auf diesem PC und für dein Windows-Konto verschlüsselt. Aus löscht den Verlauf sofort." />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Beim Anmelden" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Blitztext mit Windows starten" IsChecked="{Binding LaunchAtLogin, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="{Binding LaunchAtLoginText}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Über Blitztext" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,10">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Tonal}" Click="OnGitHub" ToolTip="Blitztext für Windows ist Open Source.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource Icon}" Text="&#xE943;" FontSize="12" Foreground="{DynamicResource Brush.AccentText}" Margin="0,0,6,0" />
+                                        <TextBlock Text="Auf GitHub ansehen" />
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock Text="{Binding VersionText}" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <Button x:Name="WhatsNewButton" Style="{StaticResource Button.Link}" Margin="0,0,0,6" Click="OnWhatsNew" />
+                            <Button Style="{StaticResource Button.Link}" Content="Lizenzen und Hinweise" Margin="0,0,0,6" Click="OnLicenses" />
+                            <Button Style="{StaticResource Button.Link}" Content="Protokoll-Ordner öffnen" Margin="0,0,0,12" Click="OnLogs" />
+
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdates, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,2,0,8" Text="Fragt die GitHub-Releases dieses Projekts nach einer neuen Version. GitHub sieht die Anfrage, wie bei jedem Download." />
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button Style="{StaticResource Button.Outline}" Content="Nach Updates suchen" Click="OnCheckUpdates"
+                                        IsEnabled="{Binding IsBusyWithUpdate, Converter={StaticResource InverseBool}}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource Button.Filled}" Content="Update installieren" Click="OnInstallUpdate"
+                                        Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                                        IsEnabled="{Binding IsBusyWithUpdate, Converter={StaticResource InverseBool}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource Text.Caption}" Margin="0,0,0,12"
+                                       Visibility="{Binding UpdateStatus, Converter={StaticResource NotNullToVis}}" />
+
+                            <Border Style="{StaticResource Divider}" Margin="0,0,0,12" />
+                            <Button Style="{StaticResource Button.Link}" Content="Blitztext von diesem PC entfernen …" Foreground="{DynamicResource Brush.Danger}" Click="OnCleanup" />
+                            <TextBlock Text="{Binding CleanupText}" Style="{StaticResource Text.Caption}" Margin="0,8,0,0"
+                                       Visibility="{Binding CleanupText, Converter={StaticResource NotNullToVis}}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- MARK: Models -->
+                <StackPanel x:Name="ModelsPane" Visibility="Collapsed">
+                    <TextBlock Text="Spracherkennung" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,10" Text="Blitztext transkribiert immer auf diesem PC. Das Audio verlässt das Gerät nicht." />
+                            <DockPanel Margin="0,0,0,10">
+                                <TextBlock DockPanel.Dock="Left" FontSize="12" Margin="0,0,6,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+                                            <Setter Property="Text" Value="&#xE930;" />
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SelectedModelInstalled}" Value="False">
+                                                    <Setter Property="Text" Value="&#xE896;" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Text="{Binding InstalledModelsText}" Style="{StaticResource Text.Caption}" />
+                            </DockPanel>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Lokales Modell" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" DisplayMemberPath="Label" SelectedValuePath="Id"
+                                          SelectedValue="{Binding SelectedModelId, Mode=TwoWay}" IsEnabled="{Binding IsDownloading, Converter={StaticResource InverseBool}}" />
+                            </Grid>
+
+                            <Border Background="{DynamicResource Brush.Control}" CornerRadius="9" Padding="12,10" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Geschwindigkeit" Style="{StaticResource Text.Caption}" />
+                                        <ui:RatingBar Grid.Column="1" Height="12" Value="{Binding SelectedModel.Rating.Speed}" />
+                                    </Grid>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Genauigkeit" Style="{StaticResource Text.Caption}" />
+                                        <ui:RatingBar Grid.Column="1" Height="12" Value="{Binding SelectedModel.Rating.Accuracy}" />
+                                    </Grid>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Größe" Style="{StaticResource Text.Caption}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding SelectedModel.Rating.SizeLabel}" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Text}" />
+                                    </Grid>
+                                    <TextBlock Text="{Binding SelectedModel.Rating.Languages}" Style="{StaticResource Text.Caption}" Margin="0,2,0,4" />
+                                    <TextBlock Text="{Binding SelectedModel.Attribution}" Style="{StaticResource Text.Small}" />
+                                    <TextBlock Text="Richtwerte: Genauigkeit nach deutschen FLEURS-Fehlerraten, Geschwindigkeit geschätzt für einen aktuellen PC-Prozessor." Style="{StaticResource Text.Small}" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Margin="0,0,0,10" Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVis}}">
+                                <ProgressBar Value="{Binding DownloadProgress, Mode=OneWay}" />
+                                <TextBlock Text="{Binding DownloadStatus}" Style="{StaticResource Text.Caption}" Margin="0,5,0,0" />
+                            </StackPanel>
+                            <WrapPanel Margin="0,0,0,4">
+                                <Button Style="{StaticResource Button.Filled}" Margin="0,0,10,6" Click="OnInstallModel" Content="{Binding InstallButtonText}"
+                                        Visibility="{Binding ShowInstallButton, Converter={StaticResource BoolToVis}}" />
+                                <Button Style="{StaticResource Button.Outline}" Margin="0,0,10,6" Click="OnRemoveModel" Content="Modell löschen"
+                                        Visibility="{Binding ShowRemoveButton, Converter={StaticResource BoolToVis}}" />
+                                <Button Style="{StaticResource Button.Link}" Margin="0,0,0,6" Click="OnModelPage" Content="Modellseite" VerticalAlignment="Center" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding DownloadError}" Style="{StaticResource Text.Danger}"
+                                       Visibility="{Binding DownloadError, Converter={StaticResource NotNullToVis}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="KI-Modi" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="KI-Modi sehen den Text am Cursor" IsChecked="{Binding AiSeesFieldContext, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Blitztext+, $%&amp;! und :) bekommen den Text rund um den Cursor als Kontext, etwa die Mail, auf die du antwortest. Mit einem Modell-Anbieter im Internet geht dieser Text mit an den Anbieter." />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Modell-Anbieter" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,10" Text="{Binding ProviderNote}" />
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Anbieter" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1" ItemsSource="{x:Static ui:SettingsViewModel.Providers}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                          SelectedValue="{Binding ProviderKey, Mode=TwoWay}" />
+                            </Grid>
+
+                            <StackPanel Visibility="{Binding HasProvider, Converter={StaticResource BoolToVis}}">
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="API-Key" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <PasswordBox x:Name="KeyBox" Grid.Column="1" Tag="{Binding KeyPlaceholder}" PasswordChanged="OnKeyChanged" />
+                                    <Button Grid.Column="2" Style="{StaticResource Button.Tonal}" Content="Sichern" Margin="8,0,0,0" Click="OnSaveKey" x:Name="SaveKeyButton" IsEnabled="False" />
+                                </Grid>
+                                <DockPanel Margin="70,0,0,10">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Key erstellen" Click="OnKeyHelp"
+                                            Visibility="{Binding KeyHelpUrl, Converter={StaticResource NotNullToVis}}" />
+                                    <StackPanel Orientation="Horizontal" Visibility="{Binding HasSavedKey, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource Icon}" Text="&#xE930;" FontSize="11" Foreground="{DynamicResource Brush.Ready}" Margin="0,0,5,0" />
+                                        <TextBlock Text="API-Key gespeichert" Style="{StaticResource Text.Caption}" Foreground="{DynamicResource Brush.Ready}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                        <Button Style="{StaticResource Button.Link}" Content="Entfernen" Foreground="{DynamicResource Brush.Danger}" Click="OnRemoveKey" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Modell" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1" Text="{Binding ProviderModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=600}" Tag="{Binding ProviderModelPlaceholder}" />
+                                </Grid>
+                                <StackPanel Visibility="{Binding IsCustomProvider, Converter={StaticResource BoolToVis}}">
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Adresse" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" Text="{Binding ProviderBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=600}" Tag="{Binding ProviderBaseUrlPlaceholder}" />
+                                    </Grid>
+                                    <TextBlock Style="{StaticResource Desc}" Margin="70,2,0,10" Text="OpenAI-kompatible Adresse. Ollama: http://localhost:11434/v1, LM Studio: http://localhost:1234/v1." />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="70,2,0,0">
+                                    <Button Style="{StaticResource Button.Outline}" Content="Verbindung testen" Click="OnTest" IsEnabled="{Binding Testing, Converter={StaticResource InverseBool}}" Margin="0,0,10,0" />
+                                    <ui:TypingDots Width="26" Height="14" DotBrush="{DynamicResource Brush.Accent}" Visibility="{Binding Testing, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                                <TextBlock Margin="70,8,0,0" Text="{Binding TestResult}" Visibility="{Binding TestResult, Converter={StaticResource NotNullToVis}}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Danger}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding TestOk}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Ready}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- MARK: Modes -->
+                <StackPanel x:Name="ModesPane" Visibility="Collapsed">
+                    <TextBlock Text="{Binding ImproverName}" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding ImproverKeys}" Style="{StaticResource Text.Small}" />
+                                <TextBlock Text="{Binding ImproverSubtitle}" Style="{StaticResource Text.Caption}" />
+                            </DockPanel>
+                            <TextBlock Text="Schreibstil" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.Tones}" SelectedValue="{Binding Tone, Mode=TwoWay}" Margin="0,0,0,12" />
+                            <TextBlock Text="Kontext" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding ImproverContext, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=600}"
+                                     Tag="z. B. „E-Mails im Bereich Unternehmensberatung“" Margin="0,0,0,10" />
+                            <ToggleButton x:Name="ImproverPromptToggle" Style="{StaticResource Button.Subtle}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,0,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="9" Margin="0,0,6,0" Foreground="{DynamicResource Brush.TextSecondary}" />
+                                    <TextBlock Text="{Binding ImproverPromptLabel}" FontSize="12" />
+                                </StackPanel>
+                            </ToggleButton>
+                            <TextBox Text="{Binding ImproverPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=600}" AcceptsReturn="True" TextWrapping="Wrap"
+                                     Height="80" VerticalContentAlignment="Top" Tag="z. B. „Schreibe prägnant und ohne Füllwörter.“" Margin="0,0,0,12"
+                                     Visibility="{Binding IsChecked, ElementName=ImproverPromptToggle, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="{Binding DampfName}" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding DampfKeys}" Style="{StaticResource Text.Small}" />
+                                <TextBlock Text="{Binding DampfSubtitle}" Style="{StaticResource Text.Caption}" />
+                            </DockPanel>
+                            <ToggleButton x:Name="DampfPromptToggle" Style="{StaticResource Button.Subtle}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,0,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="9" Margin="0,0,6,0" Foreground="{DynamicResource Brush.TextSecondary}" />
+                                    <TextBlock Text="{Binding DampfPromptLabel}" FontSize="12" />
+                                </StackPanel>
+                            </ToggleButton>
+                            <StackPanel Visibility="{Binding IsChecked, ElementName=DampfPromptToggle, Converter={StaticResource BoolToVis}}" Margin="0,0,0,12">
+                                <TextBox Text="{Binding DampfPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=600}" AcceptsReturn="True" TextWrapping="Wrap"
+                                         Height="130" VerticalContentAlignment="Top" Tag="z. B. „Formuliere den Text sachlich und freundlich um.“" />
+                                <Button Style="{StaticResource Button.Link}" Content="Standard wiederherstellen" Margin="0,8,0,0" Click="OnResetDampfPrompt"
+                                        Visibility="{Binding DampfPromptIsCustom, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="{Binding EmojiName}" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding EmojiKeys}" Style="{StaticResource Text.Small}" />
+                                <TextBlock Text="{Binding EmojiSubtitle}" Style="{StaticResource Text.Caption}" />
+                            </DockPanel>
+                            <TextBlock Text="Emoji-Dichte" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.Densities}" SelectedValue="{Binding EmojiDensity, Mode=TwoWay}" Margin="0,0,0,14" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Modus je App" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,10" Text="{Binding AppRulesIntro}" />
+                            <ItemsControl ItemsSource="{Binding Rules}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" Foreground="{DynamicResource Brush.TextSecondary}" Margin="0,0,8,0" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Style="{StaticResource Text.Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                            <ComboBox Grid.Column="2" Tag="{Binding Rule}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                      ItemsSource="{Binding DataContext.ModeOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      SelectedValue="{Binding Mode, Mode=OneWay}" SelectionChanged="OnRuleModeChanged" />
+                                            <Button Grid.Column="3" Style="{StaticResource Button.Close}" Margin="4,0,0,0" Tag="{Binding Rule}" Click="OnRemoveRule" ToolTip="Regel entfernen" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,8" Visibility="{Binding HasWebsiteRules, Converter={StaticResource BoolToVis}}"
+                                       Text="Websites erkennt Blitztext in Chrome, Edge, Firefox, Brave, Opera und Vivaldi. Eine Website-Regel gilt vor der Regel für den Browser." />
+                            <TextBlock Style="{StaticResource Text.Danger}" Margin="0,0,0,8" Visibility="{Binding RulesNeedProvider, Converter={StaticResource BoolToVis}}"
+                                       Text="KI-Modi brauchen einen Modell-Anbieter. Bis dahin diktiert Blitztext dort wortgenau." />
+                            <Button x:Name="AddRuleButton" Style="{StaticResource Button.Tonal}" HorizontalAlignment="Left" Click="OnAddRule">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" FontSize="11" Foreground="{DynamicResource Brush.AccentText}" Margin="0,0,6,0" />
+                                    <TextBlock Text="App oder Website hinzufügen" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- MARK: Dictionary -->
+                <StackPanel x:Name="DictionaryPane" Visibility="Collapsed">
+                    <TextBlock Text="Eigennamen" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,6">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,10" Text="Namen und Fachbegriffe, die Blitztext genau so schreiben soll. KI-Modi übernehmen sie unverändert." />
+                            <ItemsControl ItemsSource="{Binding CustomTerms}" Focusable="False" Margin="0,0,0,8">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{DynamicResource Brush.Control}" BorderBrush="{DynamicResource Brush.ControlBorder}" BorderThickness="1"
+                                                CornerRadius="12" Padding="10,2,2,2" Margin="0,0,6,6">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Text}" />
+                                                <Button Style="{StaticResource Button.Close}" Tag="{Binding}" Click="OnRemoveTerm" Padding="5,4" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="NewTerm" Tag="Neuer Begriff" KeyDown="OnTermKeyDown" />
+                                <Button Grid.Column="1" Style="{StaticResource Button.Tonal}" Content="Hinzufügen" Margin="8,0,0,0" Click="OnAddTerm" />
+                            </Grid>
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Eigennamen automatisch korrigieren" IsChecked="{Binding CorrectCustomTerms, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Korrigiert ähnlich klingende Schreibweisen auf deine Eigennamen, z. B. „Black Boat“ zu „Blackboat“. Echte Wörter bleiben unverändert (Windows-Rechtschreibprüfung für Deutsch und Englisch)." />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Ersetzungen" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,0,0,10" Text="Für Begriffe, die anders klingen, als sie geschrieben werden. Zum Beispiel wird aus „n acht n“ immer „n8n“." />
+                            <ItemsControl ItemsSource="{Binding Replacements}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Button.Close}" Tag="{Binding}" Click="OnRemoveReplacement" ToolTip="Ersetzung entfernen" />
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Spoken}" Style="{StaticResource Text.Caption}" />
+                                                <TextBlock Style="{StaticResource Icon}" Text="&#xE72A;" FontSize="10" Margin="8,0" Foreground="{DynamicResource Brush.TextTertiary}" />
+                                                <TextBlock Text="{Binding Written}" Style="{StaticResource Text.Label}" FontSize="12" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="NewSpoken" Tag="Gesprochen" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource Icon}" Text="&#xE72A;" FontSize="10" Margin="6,0" Foreground="{DynamicResource Brush.TextTertiary}" />
+                                <TextBox Grid.Column="2" x:Name="NewWritten" Tag="Geschrieben" KeyDown="OnReplacementKeyDown" />
+                                <Button Grid.Column="3" Style="{StaticResource Button.Tonal}" Content="Hinzufügen" Margin="8,0,0,0" Click="OnAddReplacement" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Füllwörter und Sprache" Style="{StaticResource Text.Section}" />
+                    <Border Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="„Äh“ und „ähm“ entfernen" IsChecked="{Binding RemoveFillerWords, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Entfernt Verzögerungslaute. Wörter wie „um“ (um 10 Uhr) oder „eh“ bleiben." />
+                            <TextBlock Text="Hauptsprache der Diktate" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.Languages}" SelectedValue="{Binding Language, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,6,0,14" Text="Bestimmt nur, welche Füllwörter gelten. Die Spracherkennung erkennt die Sprache jedes Diktats selbst." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </StackPanel>
+</UserControl>

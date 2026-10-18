@@ -1,0 +1,59 @@
+<UserControl x:Class="Blitztext.Windows.UI.Pages.WorkflowPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Blitztext.Windows.UI">
+    <StackPanel>
+        <Grid Margin="12,12,16,10">
+            <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Click="OnBack" ToolTip="Zurück" AutomationProperties.Name="Zurück">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE72B;" FontSize="13" />
+            </Button>
+            <TextBlock x:Name="TitleText" Style="{StaticResource Text.Headline}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <TextBlock x:Name="GlyphText" Style="{StaticResource Icon}" HorizontalAlignment="Right" Foreground="{DynamicResource Brush.TextSecondary}" />
+        </Grid>
+        <Border Style="{StaticResource Divider}" />
+
+        <!-- Recording -->
+        <StackPanel x:Name="RecordingView" Margin="16,20,16,18">
+            <ui:VoiceBars x:Name="Bars" Height="44" Margin="40,0" BarCount="24" />
+            <Button Style="{StaticResource Button.Base}" BorderThickness="0" Background="Transparent" Padding="0" HorizontalAlignment="Center"
+                    Margin="0,18,0,6" Click="OnStop" AutomationProperties.Name="Aufnahme stoppen">
+                <Grid Width="52" Height="52">
+                    <ui:SpeechBubble x:Name="StopBubble" Width="52" Height="52" Fill="{DynamicResource Brush.Accent}" />
+                    <TextBlock Style="{StaticResource Icon}" Text="&#xE71A;" FontSize="17" Foreground="{DynamicResource Brush.OnAccent}" />
+                </Grid>
+            </Button>
+            <TextBlock Text="Aufnahme läuft. Zum Stoppen klicken." Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+        </StackPanel>
+
+        <!-- Processing -->
+        <StackPanel x:Name="ProcessingView" Margin="16,24,16,22" Visibility="Collapsed">
+            <Border x:Name="ProcessingBubble" Width="44" Height="44" CornerRadius="22" HorizontalAlignment="Center" Background="{DynamicResource Brush.Accent}">
+                <ui:TypingDots Width="30" Height="16" DotBrush="{DynamicResource Brush.OnAccent}" />
+            </Border>
+            <TextBlock x:Name="ProcessingText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" TextAlignment="Center" Margin="12,14,12,0" />
+        </StackPanel>
+
+        <!-- Done -->
+        <StackPanel x:Name="DoneView" Margin="16,20,16,18" Visibility="Collapsed">
+            <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                <ui:SpeechBubble x:Name="DoneBubble" Width="44" Height="44" Fill="{DynamicResource Brush.Accent}" />
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" FontSize="17" Foreground="{DynamicResource Brush.OnAccent}" />
+            </Grid>
+            <TextBlock Text="Eingefügt" Style="{StaticResource Text.Headline}" HorizontalAlignment="Center" Margin="0,12,0,10" />
+            <Border x:Name="DoneTextBubble" CornerRadius="16,16,4,16" Padding="14,10" Margin="32,0,0,0" HorizontalAlignment="Right">
+                <TextBlock x:Name="DoneText" Style="{StaticResource Text.Body}" FontSize="12.5" MaxHeight="72" TextTrimming="WordEllipsis" />
+            </Border>
+        </StackPanel>
+
+        <!-- Error -->
+        <StackPanel x:Name="ErrorView" Margin="16,16,16,18" Visibility="Collapsed">
+            <Border Width="44" Height="44" CornerRadius="22" HorizontalAlignment="Center" Background="{DynamicResource Brush.DangerSoft}">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE783;" FontSize="18" Foreground="{DynamicResource Brush.Danger}" />
+            </Border>
+            <TextBlock x:Name="ErrorText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" TextAlignment="Center" Margin="8,12,8,12" />
+            <Button x:Name="MicrophoneButton" Style="{StaticResource Button.Outline}" Content="Mikrofon-Einstellungen öffnen" Margin="0,0,0,8"
+                    HorizontalAlignment="Stretch" Click="OnMicrophoneSettings" Visibility="Collapsed" />
+            <Button Style="{StaticResource Button.Filled}" Content="Nochmal versuchen" HorizontalAlignment="Stretch" Click="OnRetry" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

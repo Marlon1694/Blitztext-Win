@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Blitztext.Windows</RootNamespace>
+    <AssemblyName>Blitztext</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Blitztext.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SatelliteResourceLanguages>de;en</SatelliteResourceLanguages>
+    <!-- WinForms is only here for the tray icon; keep WPF's names in scope. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CA1416;WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Blitztext.Core\Blitztext.Core.csproj" />
+    <ProjectReference Include="..\Blitztext.Speech\Blitztext.Speech.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Blitztext.ico" />
+    <Resource Include="Assets\Logo.png" />
+    <Content Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Whisper.net copies its native libraries for every platform; Blitztext ships win-x64 only. -->
+  <PropertyGroup>
+    <BlitztextForeignRuntimes>linux-arm;linux-arm64;linux-x64;linux-musl-x64;macos-arm64;macos-x64;win-arm64;win-x86</BlitztextForeignRuntimes>
+  </PropertyGroup>
+
+  <Target Name="BlitztextRemoveForeignRuntimes" AfterTargets="CopyFilesToOutputDirectory">
+    <RemoveDir Directories="@(_BlitztextRuntime->'$(OutDir)runtimes/%(Identity)')" />
+    <Delete Files="$(OutDir)ggml-metal.metal" />
+  </Target>
+
+  <Target Name="BlitztextRemoveForeignPublishRuntimes" AfterTargets="Publish">
+    <RemoveDir Directories="@(_BlitztextRuntime->'$(PublishDir)runtimes/%(Identity)')" />
+    <Delete Files="$(PublishDir)ggml-metal.metal" />
+  </Target>
+
+  <ItemGroup>
+    <_BlitztextRuntime Include="$(BlitztextForeignRuntimes)" />
+  </ItemGroup>
+
+</Project>
