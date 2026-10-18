@@ -53,10 +53,6 @@ public static class SelfTest
             await Check("keyboard hook", true, () => KeyboardHook(state));
             await Check("spell checker", false, SpellChecker);
             await Check("microphones", false, Microphones);
-            await Check("render pages", true, () => RenderPages(state));
-            await Check("layout", false, () => Report(LayoutIssues, "no cut-off text, nothing wider than the window"));
-            await Check("bindings", false, () => Report(BindingErrors.Messages, "no binding errors"));
-            await Check("paste into Notepad", false, () => PasteIntoNotepad(state));
             if (installModels)
             {
                 foreach (var model in LocalModelCatalog.All.Where(m => m != LocalModelCatalog.WhisperTurbo))
@@ -64,6 +60,11 @@ public static class SelfTest
                     await Check($"install {model.Id}", true, () => InstallModel(state, model));
                 }
             }
+            // With a model the workflow page shows its real error state (no microphone on CI).
+            await Check("render pages", true, () => RenderPages(state));
+            await Check("layout", false, () => Report(LayoutIssues, "no cut-off text, nothing wider than the window"));
+            await Check("bindings", false, () => Report(BindingErrors.Messages, "no binding errors"));
+            await Check("paste into Notepad", false, () => PasteIntoNotepad(state));
             if (audio is not null)
             {
                 await Check("decode audio file", true, () => DecodeAudio(audio));
