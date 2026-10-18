@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Blitztext.Core.AI;
@@ -26,6 +28,8 @@ public static class SelfTest
     private sealed record Result(string Name, bool Passed, string Detail, bool Required);
 
     private static readonly List<Result> Results = [];
+    private static readonly List<string> LayoutIssues = [];
+    private static readonly BindingErrorListener BindingErrors = new();
     private static string _output = ".";
 
     public static async Task RunAsync(string[] args)
@@ -50,6 +54,8 @@ public static class SelfTest
             await Check("spell checker", false, SpellChecker);
             await Check("microphones", false, Microphones);
             await Check("render pages", true, () => RenderPages(state));
+            await Check("layout", false, () => Report(LayoutIssues, "no cut-off text, nothing wider than the window"));
+            await Check("bindings", false, () => Report(BindingErrors.Messages, "no binding errors"));
             if (installModels)
             {
                 foreach (var model in LocalModelCatalog.All.Where(m => m != LocalModelCatalog.WhisperTurbo))
@@ -110,6 +116,29 @@ public static class SelfTest
     private static void Expect(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static string Report(List<string> issues, string clean)
+    {
+        var distinct = issues.Distinct().ToList();
+        Expect(distinct.Count == 0, $"{distinct.Count} issues:" + Environment.NewLine + string.Join(Environment.NewLine, distinct.Take(40).Select(i => "      " + i)));
+        return clean;
+    }
+
+    /// <summary>Collects WPF data binding errors, which WPF otherwise only reports to a debugger.</summary>
+    private sealed class BindingErrorListener : TraceListener
+    {
+        public List<string> Messages { get; } = [];
+        private readonly StringBuilder _line = new();
+
+        public override void Write(string? message) => _line.Append(message);
+
+        public override void WriteLine(string? message)
+        {
+            _line.Append(message);
+            lock (Messages) Messages.Add(_line.ToString());
+            _line.Clear();
+        }
     }
 
     // MARK: - Checks
@@ -246,6 +275,9 @@ public static class SelfTest
 
     private static async Task<string> RenderPages(AppState state)
     {
+        PresentationTraceSources.Refresh();
+        PresentationTraceSources.DataBindingSource.Listeners.Add(BindingErrors);
+        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
         var popover = new PopoverWindow(state);
         var pill = new RecordingPillWindow(state);
         var rendered = new List<string>();
@@ -264,6 +296,7 @@ public static class SelfTest
                 popover.Present(atCursor: false);
                 await Settle();
                 Render(popover, Path.Combine(_output, $"{theme}-{page.ToString().ToLowerInvariant()}.png"));
+                Inspect(popover, $"{theme} {page}");
                 rendered.Add($"{theme}-{page}");
                 if (page == PopoverPage.Settings && popover.Page(page) is UI.Pages.SettingsPage settings)
                 {
@@ -272,6 +305,7 @@ public static class SelfTest
                         settings.SelectTab(tab);
                         await Settle();
                         Render(popover, Path.Combine(_output, $"{theme}-settings-{tab.ToString().ToLowerInvariant()}.png"));
+                        Inspect(popover, $"{theme} settings {tab}");
                     }
                     settings.SelectTab(UI.Pages.SettingsTab.General);
                 }
@@ -286,6 +320,7 @@ public static class SelfTest
                 pill.Opacity = 1;
                 await Settle();
                 Render(pill, Path.Combine(_output, $"{theme}-pill-{status.GetType().Name.ToLowerInvariant()}.png"));
+                Inspect(pill, $"{theme} pill {status.GetType().Name}");
             }
             state.Status = TrayStatus.IdleStatus;
         }
@@ -314,10 +349,71 @@ public static class SelfTest
             context.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
         }
         bitmap.Render(visual);
+        var pixels = new int[width * height];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        if (pixels.Distinct().Take(16).Count() < 16) LayoutIssues.Add($"{Path.GetFileName(path)}: looks blank");
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var file = File.Create(path);
         encoder.Save(file);
+    }
+
+    /// <summary>Finds text that does not fit and elements that stick out of the window.</summary>
+    private static void Inspect(Window window, string name)
+    {
+        if (window.Content is not FrameworkElement root) return;
+        root.UpdateLayout();
+        var right = root.ActualWidth + 1;
+        foreach (var element in Descendants(root).OfType<FrameworkElement>())
+        {
+            if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) continue;
+            Rect box;
+            try
+            {
+                box = element.TransformToAncestor(root).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+            if (box.Right > right || box.Left < -1)
+            {
+                LayoutIssues.Add($"{name}: {Describe(element)} spans x {box.Left:F0}..{box.Right:F0}, window is {root.ActualWidth:F0} wide");
+            }
+            if (element is TextBlock text && text.TextWrapping == TextWrapping.NoWrap && text.TextTrimming == TextTrimming.None && !string.IsNullOrEmpty(text.Text))
+            {
+                var formatted = new FormattedText(text.Text, CultureInfo.CurrentUICulture, text.FlowDirection,
+                    new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch), text.FontSize, Brushes.Black,
+                    VisualTreeHelper.GetDpi(text).PixelsPerDip);
+                var available = text.ActualWidth - text.Padding.Left - text.Padding.Right;
+                if (formatted.WidthIncludingTrailingWhitespace > available + 1)
+                {
+                    LayoutIssues.Add($"{name}: text cut off ({formatted.WidthIncludingTrailingWhitespace:F0} > {available:F0}): {Describe(text)}");
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            yield return child;
+            foreach (var nested in Descendants(child)) yield return nested;
+        }
+    }
+
+    private static string Describe(FrameworkElement element)
+    {
+        string? label = element switch
+        {
+            TextBlock text => text.Text,
+            ContentControl { Content: string content } => content,
+            _ => Descendants(element).OfType<TextBlock>().Select(t => t.Text).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)),
+        };
+        var id = string.IsNullOrEmpty(element.Name) ? element.GetType().Name : $"{element.GetType().Name} {element.Name}";
+        return label is null ? id : $"{id} \"{(label.Length > 60 ? label[..60] + "…" : label)}\"";
     }
 
     private static async Task<string> InstallModel(AppState state, LocalModelInfo model)
