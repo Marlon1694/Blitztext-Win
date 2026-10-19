@@ -94,6 +94,14 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
+          # "Let desktop apps access your microphone" is off on the runner.
+          foreach ($key in @(
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone',
+              'HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone',
+              'HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged')) {
+            New-Item -Path $key -Force | Out-Null
+            Set-ItemProperty -Path $key -Name Value -Value Allow
+          }
           Set-Service audiosrv -StartupType Automatic -ErrorAction SilentlyContinue
           Start-Service audiosrv -ErrorAction SilentlyContinue
           Get-Service audiosrv, AudioEndpointBuilder | Format-Table -AutoSize Name, Status
