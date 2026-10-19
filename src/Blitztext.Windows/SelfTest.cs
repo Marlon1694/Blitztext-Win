@@ -392,10 +392,15 @@ public static class SelfTest
             await Task.Delay(1000);
             target.Activate();
             await Task.Delay(500);
+            // Switching the device off takes PowerShell a few seconds, so it starts right away and runs
+            // alongside the dictation.
             var partial = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length,
-                midway: () => SetCableEnabled(false), midwayAfter: TimeSpan.FromSeconds(2.5));
+                midway: () => SetCableEnabled(false), midwayAfter: TimeSpan.FromSeconds(0.5));
             text += partial;
-            report.Add($"unplugged: '{partial.Trim()}' [{LastRecordingLog()}]");
+            var gone = VirtualCable() is null;
+            var noticed = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).Any(l => l.Contains("Microphone stopped delivering", StringComparison.Ordinal));
+            report.Add($"unplugged ({(gone ? "device gone" : "device could not be switched off")}, "
+                + $"{(noticed ? "recording ended with the device" : "no device error seen")}): '{partial.Trim()}' [{LastRecordingLog()}]");
             Expect(Words(partial) is { Length: > 0 } partWords && partWords[0] == expected[0], $"unplugged: got '{partial.Trim()}'");
             Expect(state.ActiveWorkflow is not { IsRecording: true }, "unplugged: still recording");
 
@@ -466,17 +471,19 @@ public static class SelfTest
         await Task.Delay(400);
         Expect(state.Status is TrayStatus.Recording, $"tray shows {state.Status} while recording");
         var rest = (int)(speech.Length * 1000L / AudioClip.SampleRate) - 60 - 400;
+        Task? midwayTask = null;
         if (midway is not null)
         {
             var before = Math.Max(0, (int)midwayAfter.TotalMilliseconds - 400);
             await Task.Delay(before);
-            await midway();
+            midwayTask = midway();
             rest = Math.Max(0, rest - before);
         }
         // Let go a moment before the last word has fully sounded, as people do.
         await Task.Delay(rest);
         Send(InputSender.VK_LWIN, true);
         Send(InputSender.VK_LCONTROL, true);
+        if (midwayTask is not null) await midwayTask;
 
         for (var i = 0; i < 300; i++)
         {
