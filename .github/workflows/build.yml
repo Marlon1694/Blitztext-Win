@@ -144,14 +144,18 @@ jobs:
           path: dist
       - name: Prepare the draft (manual runs)
         if: github.ref_type != 'tag'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: v${{ needs.windows.outputs.version }}
         run: |
-          # A manual run must never change a published release.
-          if gh api "repos/$GH_REPO/releases/tags/$TAG" --silent 2>/dev/null; then
+          # A manual run must never change a published release. Only a 404 means there is none.
+          if out=$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq .id 2>&1); then
             echo "::error::$TAG ist schon veröffentlicht. Zuerst die Version in Directory.Build.props erhöhen."
+            exit 1
+          elif [[ $out != *"(HTTP 404)"* ]]; then
+            echo "$out" >&2
             exit 1
           fi
           # Replace an older draft so the new one points at this commit.
