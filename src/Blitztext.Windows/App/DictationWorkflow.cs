@@ -68,12 +68,18 @@ public sealed partial class DictationWorkflow : ObservableObject
     /// <param name="requestedAt">When the shortcut was pressed, to measure how fast the microphone answers.</param>
     public void Start(long requestedAt)
     {
+        // The recording first: the phase change asks IsRecording for the tray status.
+        _recording = _context.Microphone.Start(_context.MicrophoneId, requestedAt, error => _ui.Post(_ => OnMicrophoneEnded(error), null));
         Phase = new WorkflowPhase.Running(RecordingMessage);
-        _recording = _context.Microphone.Start(_context.MicrophoneId, requestedAt, message => _ui.Post(_ =>
-        {
-            // After the release the result reports the error instead.
-            if (Phase is WorkflowPhase.Running { Message: RecordingMessage }) Phase = new WorkflowPhase.Error(message);
-        }, null));
+    }
+
+    private void OnMicrophoneEnded(string? error)
+    {
+        // After the release the result covers it.
+        if (Phase is not WorkflowPhase.Running { Message: RecordingMessage }) return;
+        if (error is not null) Phase = new WorkflowPhase.Error(error);
+        // The microphone went away mid-dictation: write down what came so far.
+        else if (IsRecording) Stop();
     }
 
     /// <summary>Changes the mode while the dictation has not reached its AI step.</summary>

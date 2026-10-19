@@ -67,6 +67,11 @@ public sealed class HotkeyService : IDisposable
 
     public event EventHandler<HotkeyEvent>? HotkeyPressed;
 
+    private long _typedKeys;
+
+    /// <summary>Counts keys the user typed into apps (not shortcuts, not Blitztext's own input).</summary>
+    public long TypedKeys => Interlocked.Read(ref _typedKeys);
+
     public HotkeyService()
     {
         _ui = SynchronizationContext.Current ?? new SynchronizationContext();
@@ -195,6 +200,7 @@ public sealed class HotkeyService : IDisposable
                 }
             }
 
+            Interlocked.Increment(ref _typedKeys);
             if (_activeModifierCombo is { } held)
             {
                 // Strg+Win+→ switches desktops: that was no dictation.

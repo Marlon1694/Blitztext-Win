@@ -43,6 +43,8 @@ public sealed class Microphone : IDisposable
     private int _ringFilled;
     private bool _keepOpen;
     private string? _preparedFor;
+    private bool _reprepareAfterRecording;
+    private int _reprepareQueued;
     private bool _disposed;
 
     public Microphone()
@@ -79,9 +81,19 @@ public sealed class Microphone : IDisposable
 
     private void Reprepare()
     {
-        // During a recording the next dictation sorts it out.
-        if (_active is not null) return;
+        if (_active is not null)
+        {
+            _reprepareAfterRecording = true;
+            return;
+        }
+        _reprepareAfterRecording = false;
         if (_stream is { } current && !current.IsHealthy) CloseStream();
+        if (!_keepOpen && WantedDeviceIsBluetooth())
+        {
+            // Not even opened while idle, see the class comment.
+            CloseStream();
+            return;
+        }
         var stream = EnsureStream(_preparedFor, out _, out var error);
         if (stream is null)
         {
@@ -89,7 +101,31 @@ public sealed class Microphone : IDisposable
             return;
         }
         if (_keepOpen) StartStream();
-        else if (stream.IsBluetooth) CloseStream();
+    }
+
+    /// <summary>Device notifications come in bursts and on other threads; one re-prepare covers them.</summary>
+    private void QueueReprepare()
+    {
+        if (Interlocked.Exchange(ref _reprepareQueued, 1) == 1) return;
+        Post(() =>
+        {
+            Volatile.Write(ref _reprepareQueued, 0);
+            Reprepare();
+        });
+    }
+
+    private bool WantedDeviceIsBluetooth()
+    {
+        try
+        {
+            _enumerator ??= new MMDeviceEnumerator();
+            using var device = PickDevice(_enumerator, _preparedFor);
+            return device is not null && OpenStream.IsBluetoothDevice(device);
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Runs the microphone all the time, so a dictation includes the moment before the shortcut.</summary>
@@ -114,11 +150,12 @@ public sealed class Microphone : IDisposable
     /// <summary>
     /// Starts a recording right away on the microphone thread. <paramref name="requestedAt"/> is the
     /// moment of the shortcut (<see cref="Stopwatch.GetTimestamp"/>), used to measure the start delay.
-    /// <paramref name="onFailed"/> runs on the microphone thread if the device cannot record.
+    /// <paramref name="onEnded"/> runs on the microphone thread when the recording ends by itself: with an
+    /// error message if the device cannot record, with null if it went away mid-dictation (audio kept).
     /// </summary>
-    public MicrophoneRecording Start(string? deviceId, long requestedAt, Action<string> onFailed)
+    public MicrophoneRecording Start(string? deviceId, long requestedAt, Action<string?> onEnded)
     {
-        var recording = new MicrophoneRecording(this, requestedAt, onFailed);
+        var recording = new MicrophoneRecording(this, requestedAt, onEnded);
         Post(() => Begin(recording, deviceId));
         return recording;
     }
@@ -143,8 +180,8 @@ public sealed class Microphone : IDisposable
     {
         if (_disposed) return;
         Post(() => _disposed = true);
-        _thread.Join(TimeSpan.FromSeconds(2));
-        _commandSignal.Dispose();
+        // A thread stuck in the driver may still wait on the signal; leave it to the GC then.
+        if (_thread.Join(TimeSpan.FromSeconds(2))) _commandSignal.Dispose();
     }
 
     private void Post(Action command)
@@ -160,7 +197,7 @@ public sealed class Microphone : IDisposable
         try
         {
             _enumerator = new MMDeviceEnumerator();
-            _deviceChanges = new DeviceChanges(() => Post(Reprepare));
+            _deviceChanges = new DeviceChanges(QueueReprepare);
             _enumerator.RegisterEndpointNotificationCallback(_deviceChanges);
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException)
@@ -182,8 +219,22 @@ public sealed class Microphone : IDisposable
                 catch (Exception ex) { Log.Error($"Microphone: {ex.GetType().Name}: {ex.Message}"); }
             }
             if (_disposed) break;
-            if (_stream is { Running: true }) ReadPackets();
-            if (_active is { StopAt: { } at } done && Stopwatch.GetTimestamp() >= at) Finish(done, keep: true);
+            try
+            {
+                if (_stream is { Running: true }) ReadPackets();
+                if (_active is { StopAt: { } at } done && Stopwatch.GetTimestamp() >= at) Finish(done, keep: true);
+            }
+            catch (Exception ex)
+            {
+                // An exception here would end the whole app; end the recording instead.
+                Log.Error($"Microphone: {ex.GetType().Name}: {ex.Message}");
+                CloseStream();
+                if (_active is { } failed)
+                {
+                    _active = null;
+                    failed.EndedByDevice();
+                }
+            }
         }
         if (_active is { } active) active.Fail("Blitztext wurde beendet.");
         CloseStream();
@@ -208,6 +259,7 @@ public sealed class Microphone : IDisposable
             // Whatever goes wrong, the dictation must end instead of waiting forever.
             Log.Error($"Microphone start failed: {ex.GetType().Name}: {ex.Message}");
             if (_active == recording) _active = null;
+            if (!_keepOpen) StopStream();
             recording.Fail("Aufnahme konnte nicht gestartet werden: " + ex.Message);
         }
     }
@@ -239,11 +291,7 @@ public sealed class Microphone : IDisposable
             recording.Append(preRoll, MicrophoneRecording.Now100ns() - preRoll.Length * 10_000_000L / stream.SampleRate);
         }
         _active = recording;
-        if (opened)
-        {
-            Log.Info($"Microphone opened: {stream.Device.FriendlyName}, {stream.Format.SampleRate} Hz, {stream.Format.Channels} ch"
-                + (stream.IsBluetooth ? ", Bluetooth" : ""));
-        }
+        if (opened) Log.Info($"Microphone opened: {stream.Name}, {stream.Format.SampleRate} Hz, {stream.Format.Channels} ch" + (stream.IsBluetooth ? ", Bluetooth" : ""));
     }
 
     private void Finish(MicrophoneRecording recording, bool keep)
@@ -258,6 +306,7 @@ public sealed class Microphone : IDisposable
         }
         if (keep) recording.Complete();
         else recording.Discard();
+        if (_reprepareAfterRecording) Reprepare();
     }
 
     /// <summary>The open stream for the wanted device; opens it when there is none or the device changed.</summary>
@@ -329,7 +378,7 @@ public sealed class Microphone : IDisposable
             stream.Client.Reset();
             stream.Running = false;
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException)
+        catch (Exception)
         {
             CloseStream();
         }
@@ -375,8 +424,10 @@ public sealed class Microphone : IDisposable
             if (_active is { } recording)
             {
                 _active = null;
-                recording.Complete();
+                recording.EndedByDevice();
             }
+            // Comes back by itself when the device does (notification), or at the next dictation.
+            _reprepareAfterRecording = false;
         }
     }
 
@@ -473,6 +524,7 @@ public sealed class Microphone : IDisposable
         public required AutoResetEvent FrameReady { get; init; }
         public bool Running { get; set; }
         public required bool IsBluetooth { get; init; }
+        public required string Name { get; init; }
         public int SampleRate => Format.SampleRate;
 
         /// <summary>False when Windows invalidated the stream, e.g. after sleep, unplugging or exclusive use.</summary>
@@ -506,6 +558,7 @@ public sealed class Microphone : IDisposable
                 return new OpenStream
                 {
                     IsBluetooth = IsBluetoothDevice(device),
+                    Name = FriendlyName(device),
                     DeviceId = device.ID,
                     Device = device,
                     Client = client,
@@ -526,7 +579,19 @@ public sealed class Microphone : IDisposable
         /// <summary>PKEY_Device_EnumeratorName: the bus the device hangs on, e.g. BTHENUM or USB.</summary>
         private static readonly PropertyKey EnumeratorName = new(new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), 24);
 
-        private static bool IsBluetoothDevice(MMDevice device)
+        private static string FriendlyName(MMDevice device)
+        {
+            try
+            {
+                return device.FriendlyName;
+            }
+            catch (Exception ex) when (ex is COMException or InvalidCastException)
+            {
+                return "Mikrofon";
+            }
+        }
+
+        public static bool IsBluetoothDevice(MMDevice device)
         {
             static bool Bluetooth(string? id) => id is not null && id.Contains("BTH", StringComparison.OrdinalIgnoreCase);
             try
@@ -552,7 +617,7 @@ public sealed class Microphone : IDisposable
             {
                 if (Running) Client.Stop();
             }
-            catch (COMException)
+            catch (Exception)
             {
             }
             Capture.Dispose();
@@ -566,9 +631,16 @@ public sealed class Microphone : IDisposable
 /// <summary>Device added, removed, disabled or a new Windows default: the microphone prepares again.</summary>
 internal sealed class DeviceChanges(Action changed) : NAudio.CoreAudioApi.Interfaces.IMMNotificationClient
 {
-    public void OnDeviceStateChanged(string deviceId, DeviceState newState) => changed();
-    public void OnDeviceAdded(string pwstrDeviceId) => changed();
-    public void OnDeviceRemoved(string deviceId) => changed();
+    // Runs on a Windows thread and must return quickly: only queue the work.
+    public void OnDeviceStateChanged(string deviceId, DeviceState newState) => ChangedIfCapture(deviceId);
+    public void OnDeviceAdded(string pwstrDeviceId) => ChangedIfCapture(pwstrDeviceId);
+    public void OnDeviceRemoved(string deviceId) => ChangedIfCapture(deviceId);
+
+    /// <summary>Capture endpoint IDs start with {0.0.1.00000000}; playback ones ({0.0.0...}) do not matter here.</summary>
+    private void ChangedIfCapture(string? deviceId)
+    {
+        if (deviceId is null || deviceId.StartsWith("{0.0.1.", StringComparison.Ordinal)) changed();
+    }
 
     public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
     {
@@ -584,7 +656,7 @@ internal sealed class DeviceChanges(Action changed) : NAudio.CoreAudioApi.Interf
 public sealed class MicrophoneRecording
 {
     private readonly Microphone _microphone;
-    private readonly Action<string> _onFailed;
+    private readonly Action<string?> _onEnded;
     private readonly long _requestedAt;
     private readonly object _lock = new();
     private readonly TaskCompletionSource<AudioClip> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -595,11 +667,11 @@ public sealed class MicrophoneRecording
     private float _peak;
     private int _ended;
 
-    internal MicrophoneRecording(Microphone microphone, long requestedAt, Action<string> onFailed)
+    internal MicrophoneRecording(Microphone microphone, long requestedAt, Action<string?> onEnded)
     {
         _microphone = microphone;
         _requestedAt = requestedAt;
-        _onFailed = onFailed;
+        _onEnded = onEnded;
     }
 
     /// <summary>True from the shortcut until it is released (the short tail afterwards does not count).</summary>
@@ -691,11 +763,28 @@ public sealed class MicrophoneRecording
         lock (_lock) _samples.AddRange(mono);
     }
 
+    /// <summary>Hands over the audio after a stop (the app already set <see cref="IsRecording"/> to false).</summary>
     internal void Complete()
     {
-        IsRecording = false;
         AudioLevel = 0;
         if (!TryEnd()) return;
+        HandOver();
+    }
+
+    /// <summary>
+    /// The device went away mid-dictation (unplugged, Bluetooth dropped). The audio so far is kept and the
+    /// app is told, so it can finish the dictation; <see cref="IsRecording"/> stays true until it stops.
+    /// </summary>
+    internal void EndedByDevice()
+    {
+        AudioLevel = 0;
+        if (!TryEnd()) return;
+        HandOver();
+        _onEnded(null);
+    }
+
+    private void HandOver()
+    {
         float[] raw;
         lock (_lock)
         {
@@ -732,7 +821,7 @@ public sealed class MicrophoneRecording
         if (!TryEnd()) return;
         ErrorMessage = message;
         _done.TrySetResult(new AudioClip([]));
-        _onFailed(message);
+        _onEnded(message);
     }
 }
 

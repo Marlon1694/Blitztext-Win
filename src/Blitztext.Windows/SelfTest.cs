@@ -385,6 +385,29 @@ public static class SelfTest
                 Expect(words[^1] == expected[^1], $"{round}: last word incomplete, got '{pasted.Trim()}', expected to end with '{expected[^1]}'");
             }
             Expect(!System.Text.RegularExpressions.Regex.IsMatch(text, @"[.!?]\p{L}"), $"dictations not separated by a space: '{text}'");
+
+            // The microphone disappears mid-dictation (unplugged, Bluetooth gone): the dictation ends with
+            // what came so far instead of hanging, and works again once the device is back.
+            state.UpdateSettings(s => s.App.KeepMicrophoneOpen = false);
+            await Task.Delay(1000);
+            target.Activate();
+            await Task.Delay(500);
+            var partial = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length,
+                midway: () => SetCableEnabled(false), midwayAfter: TimeSpan.FromSeconds(2.5));
+            text += partial;
+            report.Add($"unplugged: '{partial.Trim()}' [{LastRecordingLog()}]");
+            Expect(Words(partial) is { Length: > 0 } partWords && partWords[0] == expected[0], $"unplugged: got '{partial.Trim()}'");
+            Expect(state.ActiveWorkflow is not { IsRecording: true }, "unplugged: still recording");
+
+            await SetCableEnabled(true);
+            for (var i = 0; i < 40 && VirtualCable() is null; i++) await Task.Delay(250);
+            await Task.Delay(1500);
+            target.Activate();
+            await Task.Delay(500);
+            var again = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length);
+            report.Add($"plugged in again: '{again.Trim()}' [{LastRecordingLog()}]");
+            var againWords = Words(again);
+            Expect(againWords.Length > 0 && againWords[0] == expected[0] && againWords[^1] == expected[^1], $"plugged in again: got '{again.Trim()}'");
             return string.Join(" | ", report);
         }
         finally
@@ -400,21 +423,58 @@ public static class SelfTest
     }
 
     /// <summary>One dictation; returns the text it added to Notepad.</summary>
-    private static async Task<string> DictateOnce(AppState state, TargetApp target, string speakerId, float[] speech, int lengthBefore)
+    /// <summary>Switches VB-CABLE off or on, like unplugging a microphone.</summary>
+    private static async Task SetCableEnabled(bool enabled)
+    {
+        var verb = enabled ? "Enable" : "Disable";
+        using var process = Process.Start(new ProcessStartInfo("powershell.exe",
+            $"-NoProfile -Command \"Get-PnpDevice -Class MEDIA | Where-Object FriendlyName -like '*VB-Audio*' | {verb}-PnpDevice -Confirm:$false\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        if (process is not null) await process.WaitForExitAsync();
+    }
+
+    private static async Task<string> DictateOnce(AppState state, TargetApp target, string speakerId, float[] speech, int lengthBefore,
+        Func<Task>? midway = null, TimeSpan midwayAfter = default)
     {
         using var enumerator = new MMDeviceEnumerator();
         using var speaker = enumerator.GetDevice(speakerId);
         var format = speaker.AudioClient.MixFormat;
         var interleaved = Interleaved(AudioConversion.Resample(speech, AudioClip.SampleRate, format.SampleRate), format.Channels);
-        using var output = new WasapiOut(speaker, AudioClientShareMode.Shared, true, 20);
-        output.Init(new RawSourceWaveStream(new MemoryStream(interleaved), WaveFormat.CreateIeeeFloatWaveFormat(format.SampleRate, format.Channels)));
+        var output = new WasapiOut(speaker, AudioClientShareMode.Shared, true, 20);
+        try
+        {
+            output.Init(new RawSourceWaveStream(new MemoryStream(interleaved), WaveFormat.CreateIeeeFloatWaveFormat(format.SampleRate, format.Channels)));
+            return await PlayAndCollect(state, target, output, speech, lengthBefore, midway, midwayAfter);
+        }
+        finally
+        {
+            // The device may be gone (unplug round); disposing must not fail the check.
+            try { output.Dispose(); } catch (Exception ex) when (ex is COMException or InvalidOperationException) { }
+        }
+    }
 
+    private static async Task<string> PlayAndCollect(AppState state, TargetApp target, WasapiOut output, float[] speech, int lengthBefore,
+        Func<Task>? midway, TimeSpan midwayAfter)
+    {
         Send(InputSender.VK_LCONTROL, false);
         Send(InputSender.VK_LWIN, false);
         await Task.Delay(150);
         output.Play();
+        await Task.Delay(400);
+        Expect(state.Status is TrayStatus.Recording, $"tray shows {state.Status} while recording");
+        var rest = (int)(speech.Length * 1000L / AudioClip.SampleRate) - 60 - 400;
+        if (midway is not null)
+        {
+            var before = Math.Max(0, (int)midwayAfter.TotalMilliseconds - 400);
+            await Task.Delay(before);
+            await midway();
+            rest = Math.Max(0, rest - before);
+        }
         // Let go a moment before the last word has fully sounded, as people do.
-        await Task.Delay((int)(speech.Length * 1000L / AudioClip.SampleRate) - 60);
+        await Task.Delay(rest);
         Send(InputSender.VK_LWIN, true);
         Send(InputSender.VK_LCONTROL, true);
 
@@ -429,6 +489,11 @@ public static class SelfTest
                 return field.TextBefore[lengthBefore..];
             }
             if (state.ActiveWorkflow?.Phase is WorkflowPhase.Error error) throw new InvalidOperationException("dictation failed: " + error.Message);
+            if (state.Status is TrayStatus.Failure)
+            {
+                var line = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).LastOrDefault(l => l.Contains("ended with an error", StringComparison.Ordinal));
+                throw new InvalidOperationException("dictation failed: " + (line ?? "no log"));
+            }
         }
         throw new TimeoutException($"nothing arrived in Notepad (status {state.Status})");
     }
