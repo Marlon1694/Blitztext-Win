@@ -116,6 +116,8 @@ public sealed partial class AppState : ObservableObject
         Hotkeys.HotkeyPressed += (_, e) => HandleHotkey(e);
         Microphone.KeepOpen = _settings.App.KeepMicrophoneOpen;
         Microphone.Prepare(_settings.App.MicrophoneDeviceId);
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
         History.Changed += (_, _) => OnPropertyChanged(nameof(LastHistoryEntry));
         PrewarmLocalTranscriptionIfNeeded();
     }
@@ -397,9 +399,26 @@ public sealed partial class AppState : ObservableObject
         Page = PopoverPage.Main;
     }
 
+    // Sleep, a locked screen or a remote session can invalidate the waiting microphone stream.
+    private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) Microphone.Prepare(Settings.MicrophoneDeviceId);
+    }
+
+    private void OnSessionSwitch(object? sender, Microsoft.Win32.SessionSwitchEventArgs e)
+    {
+        if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.ConsoleConnect
+            or Microsoft.Win32.SessionSwitchReason.RemoteConnect)
+        {
+            Microphone.Prepare(Settings.MicrophoneDeviceId);
+        }
+    }
+
     /// <summary>Gives the PC its sound and clipboard back, e.g. when Blitztext quits mid-recording.</summary>
     public void Shutdown()
     {
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch -= OnSessionSwitch;
         _mute?.Cancel();
         _audioMuter.RestoreIfNeeded();
         ActiveWorkflow?.Reset();

@@ -119,9 +119,11 @@ public sealed partial class DictationWorkflow : ObservableObject
         CaptureEnded?.Invoke();
         var duration = recording.Duration;
         if (cancel.IsCancellationRequested) return;
-        Log.Info($"Recorded {duration:F1} s; microphone "
-            + (recording.StartDelay is { } delay ? $"answered {delay.TotalMilliseconds:F0} ms after the shortcut" : "delivered nothing")
-            + (recording.OpenedDevice ? " (opened for this recording)" : ""));
+        Log.Info($"Recorded {duration:F1} s; audio starts "
+            + (recording.StartDelay is { } delay
+                ? delay >= TimeSpan.Zero ? $"{delay.TotalMilliseconds:F0} ms after the shortcut" : $"{-delay.TotalMilliseconds:F0} ms before the shortcut"
+                : "nowhere: the microphone delivered nothing")
+            + (recording.OpenedDevice ? " (microphone opened for this recording)" : ""));
 
         if (recording.ErrorMessage is { } error)
         {
