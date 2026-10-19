@@ -91,6 +91,8 @@ public sealed class AppSettings
     public bool ShowsRecordingIndicator { get; set; } = true;
     /// <summary>Microphone endpoint ID; empty for the Windows default.</summary>
     public string MicrophoneDeviceId { get; set; } = "";
+    /// <summary>The microphone runs all the time, so a dictation also gets the moment before the shortcut.</summary>
+    public bool KeepMicrophoneOpen { get; set; }
     /// <summary>Look for new versions on the GitHub releases page.</summary>
     public bool CheckForUpdates { get; set; } = true;
 

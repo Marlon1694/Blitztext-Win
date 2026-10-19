@@ -14,6 +14,8 @@ using Blitztext.Windows.App;
 using Blitztext.Windows.Interop;
 using Blitztext.Windows.Services;
 using Blitztext.Windows.UI;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace Blitztext.Windows;
 
@@ -67,6 +69,9 @@ public static class SelfTest
             await Check("paste into Notepad", false, () => PasteIntoNotepad(state));
             if (audio is not null)
             {
+                // A virtual cable (VB-CABLE) plays the speech into a microphone: the real path from shortcut to text.
+                var hasCable = VirtualCable() is not null;
+                await Check("dictation end to end", hasCable, () => DictateEndToEnd(state, audio));
                 await Check("decode audio file", true, () => DecodeAudio(audio));
                 foreach (var model in state.Models.InstalledModels())
                 {
@@ -264,22 +269,39 @@ public static class SelfTest
     /// The real path end to end: bring Notepad to the front, paste through the delayed clipboard with
     /// Ctrl+V, read the text before the cursor back through UI Automation, and get the clipboard back.
     /// </summary>
-    private static async Task<string> PasteIntoNotepad(AppState state)
+    private static async Task<(TargetApp Target, HashSet<int> Before)> OpenNotepad()
     {
         var before = Process.GetProcessesByName("notepad").Select(p => p.Id).ToHashSet();
         Process.Start(new ProcessStartInfo("notepad.exe") { UseShellExecute = true })?.Dispose();
+        for (var i = 0; i < 100; i++)
+        {
+            await Task.Delay(100);
+            var started = Process.GetProcessesByName("notepad").FirstOrDefault(p => !before.Contains(p.Id) && p.MainWindowHandle != IntPtr.Zero);
+            if (started is not null)
+            {
+                var target = new TargetApp(started.MainWindowHandle, (uint)started.Id, "notepad.exe", "Editor");
+                target.Activate();
+                await Task.Delay(700);
+                return (target, before);
+            }
+        }
+        CloseNotepads(before);
+        throw new InvalidOperationException("Notepad did not open a window");
+    }
+
+    private static void CloseNotepads(HashSet<int> before)
+    {
+        foreach (var process in Process.GetProcessesByName("notepad").Where(p => !before.Contains(p.Id)))
+        {
+            try { process.Kill(); } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        }
+    }
+
+    private static async Task<string> PasteIntoNotepad(AppState state)
+    {
+        var (target, before) = await OpenNotepad();
         try
         {
-            TargetApp? target = null;
-            for (var i = 0; i < 100 && target is null; i++)
-            {
-                await Task.Delay(100);
-                var started = Process.GetProcessesByName("notepad").FirstOrDefault(p => !before.Contains(p.Id) && p.MainWindowHandle != IntPtr.Zero);
-                if (started is not null) target = new TargetApp(started.MainWindowHandle, (uint)started.Id, "notepad.exe", "Editor");
-            }
-            Expect(target is not null, "Notepad did not open a window");
-            target!.Activate();
-            await Task.Delay(700);
 
             state.Clipboard.Copy("vorher kopiert");
             await state.PasteAtCursorAsync("Hallo Welt.", target);
@@ -294,11 +316,161 @@ public static class SelfTest
         }
         finally
         {
-            foreach (var process in Process.GetProcessesByName("notepad").Where(p => !before.Contains(p.Id)))
-            {
-                try { process.Kill(); } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-            }
+            CloseNotepads(before);
         }
+    }
+
+    /// <summary>VB-CABLE's playback side and its microphone side, if installed.</summary>
+    private static (string SpeakerId, string MicrophoneId)? VirtualCable()
+    {
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            var speaker = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
+                .FirstOrDefault(d => d.FriendlyName.Contains("CABLE", StringComparison.OrdinalIgnoreCase));
+            var microphone = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
+                .FirstOrDefault(d => d.FriendlyName.Contains("CABLE", StringComparison.OrdinalIgnoreCase));
+            return speaker is null || microphone is null ? null : (speaker.ID, microphone.ID);
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What a person does: press Strg+Win, start speaking a moment later, let go right at the end.
+    /// The speech plays into a virtual microphone; the text must arrive complete, first and last word
+    /// included, in Notepad. Three rounds: the microphone waiting ready, a second dictation right after,
+    /// and the "Mikrofon bereithalten" mode.
+    /// </summary>
+    private static async Task<string> DictateEndToEnd(AppState state, string audioPath)
+    {
+        var cable = VirtualCable() ?? throw new InvalidOperationException("no virtual microphone (VB-CABLE) on this machine");
+        var speech = Trimmed(AudioFileDecoder.Decode(audioPath).Samples);
+        var expected = Words(state.PostProcessor.Process((await state.Transcription.TranscribeAsync(speech, LocalModelCatalog.Parakeet.Id)).Trim()));
+        Expect(expected.Length >= 4, "reference transcription too short");
+
+        var settings = state.Settings.Clone();
+        state.UpdateSettings(s =>
+        {
+            s.App.SelectedLocalTranscriptionModelName = LocalModelCatalog.Parakeet.Id;
+            s.App.MicrophoneDeviceId = cable.MicrophoneId;
+            // Muting the sound output would also silence the cable.
+            s.App.MuteOutputWhileRecording = false;
+            s.App.HotkeyMode = HotkeyMode.Hold;
+        });
+        if (!state.Hotkeys.IsRunning) state.Hotkeys.Start();
+        await Task.Delay(1500);
+
+        var (target, before) = await OpenNotepad();
+        var report = new List<string>();
+        try
+        {
+            var text = "";
+            foreach (var round in new[] { "ready", "again", "kept open" })
+            {
+                if (round == "kept open")
+                {
+                    state.UpdateSettings(s => s.App.KeepMicrophoneOpen = true);
+                    await Task.Delay(1500);
+                }
+                target.Activate();
+                await Task.Delay(500);
+                var pasted = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length);
+                text += pasted;
+                var words = Words(pasted);
+                report.Add($"{round}: '{pasted.Trim()}' [{LastRecordingLog()}]");
+                Expect(words.Length > 0 && words[0] == expected[0], $"{round}: first word missing, got '{pasted.Trim()}', expected to start with '{expected[0]}'");
+                Expect(words[^1] == expected[^1], $"{round}: last word incomplete, got '{pasted.Trim()}', expected to end with '{expected[^1]}'");
+            }
+            Expect(!System.Text.RegularExpressions.Regex.IsMatch(text, @"[.!?]\p{L}"), $"dictations not separated by a space: '{text}'");
+            return string.Join(" | ", report);
+        }
+        finally
+        {
+            CloseNotepads(before);
+            state.UpdateSettings(s =>
+            {
+                s.App.MicrophoneDeviceId = settings.MicrophoneDeviceId;
+                s.App.MuteOutputWhileRecording = settings.MuteOutputWhileRecording;
+                s.App.KeepMicrophoneOpen = settings.KeepMicrophoneOpen;
+            });
+        }
+    }
+
+    /// <summary>One dictation; returns the text it added to Notepad.</summary>
+    private static async Task<string> DictateOnce(AppState state, TargetApp target, string speakerId, float[] speech, int lengthBefore)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        using var speaker = enumerator.GetDevice(speakerId);
+        var format = speaker.AudioClient.MixFormat;
+        var interleaved = Interleaved(AudioConversion.Resample(speech, AudioClip.SampleRate, format.SampleRate), format.Channels);
+        using var output = new WasapiOut(speaker, AudioClientShareMode.Shared, true, 20);
+        output.Init(new RawSourceWaveStream(new MemoryStream(interleaved), WaveFormat.CreateIeeeFloatWaveFormat(format.SampleRate, format.Channels)));
+
+        Send(InputSender.VK_LCONTROL, false);
+        Send(InputSender.VK_LWIN, false);
+        await Task.Delay(150);
+        output.Play();
+        // Let go a moment before the last word has fully sounded, as people do.
+        await Task.Delay((int)(speech.Length * 1000L / AudioClip.SampleRate) - 60);
+        Send(InputSender.VK_LWIN, true);
+        Send(InputSender.VK_LCONTROL, true);
+
+        for (var i = 0; i < 300; i++)
+        {
+            await Task.Delay(100);
+            var field = await FocusedFieldReader.ReadAsync(target.ProcessId, TimeSpan.FromSeconds(2));
+            if (field is not null && field.TextBefore.Length > lengthBefore && state.ActiveWorkflow is not { Phase: WorkflowPhase.Running })
+            {
+                await Task.Delay(300);
+                field = await FocusedFieldReader.ReadAsync(target.ProcessId, TimeSpan.FromSeconds(2)) ?? field;
+                return field.TextBefore[lengthBefore..];
+            }
+            if (state.ActiveWorkflow?.Phase is WorkflowPhase.Error error) throw new InvalidOperationException("dictation failed: " + error.Message);
+        }
+        throw new TimeoutException($"nothing arrived in Notepad (status {state.Status})");
+    }
+
+    /// <summary>The app's own note about the last recording, e.g. how fast the microphone answered.</summary>
+    private static string LastRecordingLog()
+    {
+        var line = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).LastOrDefault(l => l.Contains(" Recorded ", StringComparison.Ordinal));
+        return line is null ? "no log" : line[(line.IndexOf(" Recorded ", StringComparison.Ordinal) + 1)..];
+    }
+
+    private static string[] Words(string text) =>
+        text.ToLowerInvariant().Split((char[])[' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray()))
+            .Where(w => w.Length > 0)
+            .ToArray();
+
+    /// <summary>The speech without silence before and after, so it starts with the first word.</summary>
+    private static float[] Trimmed(float[] samples)
+    {
+        const int frame = 160;
+        int first = -1, last = -1;
+        for (var start = 0; start + frame <= samples.Length; start += frame)
+        {
+            double sum = 0;
+            for (var i = start; i < start + frame; i++) sum += samples[i] * samples[i];
+            if (10 * Math.Log10(sum / frame + 1e-12) <= -40) continue;
+            if (first < 0) first = start;
+            last = start + frame;
+        }
+        return first < 0 ? samples : samples[first..last];
+    }
+
+    private static byte[] Interleaved(float[] mono, int channels)
+    {
+        var bytes = new byte[mono.Length * channels * sizeof(float)];
+        var span = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+        for (var i = 0; i < mono.Length; i++)
+        {
+            for (var channel = 0; channel < channels; channel++) span[i * channels + channel] = mono[i];
+        }
+        return bytes;
     }
 
     private static string SpellChecker()
@@ -312,7 +484,7 @@ public static class SelfTest
 
     private static string Microphones()
     {
-        var microphones = AudioRecorder.Microphones();
+        var microphones = Microphone.Devices();
         return microphones.Count == 0 ? "no microphone on this machine" : string.Join(", ", microphones.Select(m => m.Name));
     }
 

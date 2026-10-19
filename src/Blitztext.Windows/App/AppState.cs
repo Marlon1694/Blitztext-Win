@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using Blitztext.Core.AI;
 using Blitztext.Core.History;
@@ -51,6 +52,9 @@ public sealed partial class AppState : ObservableObject
     private WorkflowLaunchSource _activeLaunchSource = WorkflowLaunchSource.Manual;
     private FocusedField? _activeField;
     private CancellationTokenSource? _fieldRead;
+    /// <summary>The last dictation Blitztext pasted and into which window, for fields UI Automation cannot read (e.g. Outlook).</summary>
+    private (IntPtr Window, string Text, DateTime At)? _lastPaste;
+    private static readonly TimeSpan LastPasteMemory = TimeSpan.FromMinutes(2);
     private CancellationTokenSource? _statusReset;
     private CancellationTokenSource? _workflowCleanup;
     private CancellationTokenSource? _whatsNew;
@@ -59,6 +63,7 @@ public sealed partial class AppState : ObservableObject
     private readonly Dictionary<WorkflowType, WorkflowType> _shortcutModes = [];
 
     public HotkeyService Hotkeys { get; } = new();
+    public Microphone Microphone { get; } = new();
     public ClipboardPasteService Clipboard { get; }
     public ModelStore Models { get; } = new(AppPaths.ModelsDirectory);
     public ModelInstaller Installer { get; }
@@ -109,6 +114,8 @@ public sealed partial class AppState : ObservableObject
         }
         Hotkeys.UpdateHotkeys(_settings.App.ResolvedHotkeys());
         Hotkeys.HotkeyPressed += (_, e) => HandleHotkey(e);
+        Microphone.KeepOpen = _settings.App.KeepMicrophoneOpen;
+        Microphone.Prepare(_settings.App.MicrophoneDeviceId);
         History.Changed += (_, _) => OnPropertyChanged(nameof(LastHistoryEntry));
         PrewarmLocalTranscriptionIfNeeded();
     }
@@ -146,6 +153,14 @@ public sealed partial class AppState : ObservableObject
         if (!before.CustomHotkeys.OrderBy(k => k.Key).SequenceEqual(after.CustomHotkeys.OrderBy(k => k.Key)))
         {
             Hotkeys.UpdateHotkeys(after.ResolvedHotkeys());
+        }
+        if (before.MicrophoneDeviceId != after.MicrophoneDeviceId)
+        {
+            Microphone.Prepare(after.MicrophoneDeviceId);
+        }
+        if (before.KeepMicrophoneOpen != after.KeepMicrophoneOpen)
+        {
+            Microphone.KeepOpen = after.KeepMicrophoneOpen;
         }
         if (before.HistoryRetention != after.HistoryRetention)
         {
@@ -280,7 +295,7 @@ public sealed partial class AppState : ObservableObject
 
     // MARK: - Workflows
 
-    public void StartWorkflow(WorkflowType type, WorkflowLaunchSource source = WorkflowLaunchSource.Manual, long press = 0)
+    public void StartWorkflow(WorkflowType type, WorkflowLaunchSource source = WorkflowLaunchSource.Manual, long press = 0, long requestedAt = 0)
     {
         if (!IsWorkflowAvailable(type))
         {
@@ -297,6 +312,7 @@ public sealed partial class AppState : ObservableObject
 
         var workflow = new DictationWorkflow(type, new DictationContext(
             SelectedModel.Id,
+            Microphone,
             Settings.MicrophoneDeviceId,
             PostProcessor,
             Transcription,
@@ -308,9 +324,16 @@ public sealed partial class AppState : ObservableObject
         };
         workflow.Output += text => HandleWorkflowOutput(workflow, text);
         workflow.PhaseChanged += phase => HandleWorkflowPhaseChange(phase, workflow);
+        workflow.CaptureEnded += () =>
+        {
+            // Sound comes back once the microphone is done, not after the transcription.
+            if (ActiveWorkflow is { IsRecording: true } && ActiveWorkflow != workflow) return;
+            _mute?.Cancel();
+            _audioMuter.RestoreIfNeeded();
+        };
         ActiveWorkflow = workflow;
+        workflow.Start(requestedAt == 0 ? Stopwatch.GetTimestamp() : requestedAt);
         ReadActiveField();
-        workflow.Start();
 
         if (Settings.MuteOutputWhileRecording && workflow.IsRecording)
         {
@@ -383,6 +406,7 @@ public sealed partial class AppState : ObservableObject
         Clipboard.SettleNow();
         _settingsStore.Flush();
         Hotkeys.Dispose();
+        Microphone.Dispose();
         Transcription.Dispose();
     }
 
@@ -398,10 +422,19 @@ public sealed partial class AppState : ObservableObject
         History.Add(text, workflow.Type);
         OnPropertyChanged(nameof(LastHistoryEntry));
         var output = text;
-        if (Settings.FitToSurroundingText && _activeField is { } field)
+        if (Settings.FitToSurroundingText)
         {
-            output = InsertionFitter.Fit(text, field.TextBefore, field.TextAfter);
+            if (_activeField is { } field)
+            {
+                output = InsertionFitter.Fit(text, field.TextBefore, field.TextAfter);
+            }
+            else if (_lastPaste is { } last && _activePasteTarget?.Window == last.Window && DateTime.UtcNow - last.At < LastPasteMemory)
+            {
+                // The field could not be read: the cursor most likely still sits behind the last dictation.
+                output = InsertionFitter.Fit(text, last.Text, "");
+            }
         }
+        _lastPaste = _activePasteTarget is { } pasteTarget ? (pasteTarget.Window, output, DateTime.UtcNow) : null;
         _ = PasteAtCursorAsync(output, _activePasteTarget);
         ScheduleWhatsNewAfterDictation();
         if (_activeLaunchSource == WorkflowLaunchSource.HotkeyBackground) Page = PopoverPage.Main;
@@ -412,8 +445,8 @@ public sealed partial class AppState : ObservableObject
     {
         if (ActiveWorkflow != workflow) return;
         _statusReset?.Cancel();
-        // Sound comes back as soon as the recording ends, not after the transcription.
-        if (!workflow.IsRecording)
+        // An ended or failed dictation gives the sound back; a finished one already did in CaptureEnded.
+        if (phase is not WorkflowPhase.Running)
         {
             _mute?.Cancel();
             _audioMuter.RestoreIfNeeded();
@@ -498,7 +531,9 @@ public sealed partial class AppState : ObservableObject
         _fieldRead = cancel;
         _ = FocusedFieldReader.ReadAsync(target.ProcessId, TimeSpan.FromMilliseconds(800)).ContinueWith(t =>
         {
-            if (!cancel.IsCancellationRequested && t.IsCompletedSuccessfully) _activeField = t.Result;
+            if (cancel.IsCancellationRequested || !t.IsCompletedSuccessfully) return;
+            _activeField = t.Result;
+            if (t.Result is null) Log.Info($"Text around the cursor not readable in {target.ProcessName}");
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -566,7 +601,7 @@ public sealed partial class AppState : ObservableObject
             return;
         }
 
-        StartWorkflow(mode, WorkflowLaunchSource.HotkeyBackground, hotkeyEvent.Press);
+        StartWorkflow(mode, WorkflowLaunchSource.HotkeyBackground, hotkeyEvent.Press, hotkeyEvent.Timestamp);
         if (hotkeyEvent.Type == WorkflowType.TapTalk && ActiveWorkflow is { } started && target is not null)
         {
             _ = ApplyWebsiteRuleAsync(started, target);

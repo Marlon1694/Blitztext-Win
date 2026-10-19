@@ -85,7 +85,21 @@ jobs:
           $synth.Dispose()
           Get-Item speech.wav
 
-      - name: Self-test (pages, clipboard, keyboard hook, models, transcription)
+      # A virtual cable as microphone, so the self-test can dictate from shortcut to text.
+      - name: Virtual microphone (VB-CABLE)
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@d08c889a7bba7d9b1b059f8f76dac4672ea3a9cf # v1
+
+      - name: Audio devices
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Set-Service audiosrv -StartupType Automatic -ErrorAction SilentlyContinue
+          Start-Service audiosrv -ErrorAction SilentlyContinue
+          Get-Service audiosrv, AudioEndpointBuilder | Format-Table -AutoSize Name, Status
+          Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Format-Table -AutoSize FriendlyName, Status
+
+      - name: Self-test (pages, clipboard, keyboard hook, models, dictation, transcription)
         shell: pwsh
         run: |
           $arguments = @("--self-test", "$PWD\selftest", "--install-models")

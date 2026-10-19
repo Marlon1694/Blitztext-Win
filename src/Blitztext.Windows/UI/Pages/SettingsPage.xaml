@@ -138,6 +138,9 @@
                             <ComboBox ItemsSource="{Binding Microphones}" DisplayMemberPath="Label" SelectedValuePath="Value"
                                       SelectedValue="{Binding MicrophoneId, Mode=TwoWay}" Margin="0,0,0,14" />
 
+                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Mikrofon bereithalten" IsChecked="{Binding KeepMicrophoneOpen, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Text="Falls trotzdem der Anfang fehlt, z. B. mit Bluetooth-Headsets: Das Mikrofon läuft dann ständig und Blitztext nimmt den Moment vor dem Tastendruck mit. Windows zeigt dabei dauerhaft an, dass das Mikrofon benutzt wird. Der Ton bleibt im Arbeitsspeicher und wird ohne Tastendruck sofort verworfen." />
+
                             <CheckBox Style="{StaticResource ToggleSwitch}" Content="Aufnahme unten am Bildschirm zeigen" IsChecked="{Binding ShowsRecordingIndicator, Mode=TwoWay}" />
                             <TextBlock Style="{StaticResource Desc}" Text="Eine kleine lila Anzeige bewegt sich mit deiner Stimme, solange Blitztext aufnimmt und schreibt. Ein Klick darauf stoppt die Aufnahme." />
 

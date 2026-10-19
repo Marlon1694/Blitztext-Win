@@ -282,7 +282,7 @@ public sealed class SettingsViewModel : PageModel
 
     private static IReadOnlyList<Option> LoadMicrophones() =>
         new[] { new Option("Windows-Standard", "") }
-            .Concat(AudioRecorder.Microphones().Select(m => new Option(m.Name, m.Id)))
+            .Concat(Microphone.Devices().Select(m => new Option(m.Name, m.Id)))
             .ToList();
 
     public string MicrophoneId
@@ -299,6 +299,12 @@ public sealed class SettingsViewModel : PageModel
     {
         get => App.Settings.ShowsRecordingIndicator;
         set => App.UpdateSettings(s => s.App.ShowsRecordingIndicator = value);
+    }
+
+    public bool KeepMicrophoneOpen
+    {
+        get => App.Settings.KeepMicrophoneOpen;
+        set => App.UpdateSettings(s => s.App.KeepMicrophoneOpen = value);
     }
 
     public bool MuteOutputWhileRecording

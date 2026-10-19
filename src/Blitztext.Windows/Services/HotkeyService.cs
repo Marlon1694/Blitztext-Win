@@ -22,7 +22,11 @@ public enum HotkeyEventKind
 }
 
 /// <param name="Press">Counts presses, so a cancel only stops what the same press started.</param>
-public sealed record HotkeyEvent(HotkeyEventKind Kind, WorkflowType Type, long Press, WorkflowType? From = null);
+public sealed record HotkeyEvent(HotkeyEventKind Kind, WorkflowType Type, long Press, WorkflowType? From = null)
+{
+    /// <summary>When the hook saw the keys (<see cref="System.Diagnostics.Stopwatch.GetTimestamp"/>).</summary>
+    public long Timestamp { get; init; } = System.Diagnostics.Stopwatch.GetTimestamp();
+}
 
 public abstract record CaptureResult
 {

@@ -10,6 +10,7 @@ namespace Blitztext.Windows.App;
 /// <summary>What a dictation needs from the app, captured when it starts.</summary>
 public sealed record DictationContext(
     string ModelId,
+    Microphone Microphone,
     string MicrophoneId,
     TranscriptPostProcessor PostProcessor,
     LocalTranscriptionService Transcription,
@@ -29,9 +30,12 @@ public sealed partial class DictationWorkflow : ObservableObject
     public const string SilentMicrophone =
         "Das Mikrofon liefert keinen Ton. In Windows unter Einstellungen > Datenschutz und Sicherheit > Mikrofon den Zugriff für Desktop-Apps erlauben oder ein anderes Mikrofon wählen.";
 
+    /// <summary>Recording goes on this long after the shortcut is released, so the last word is complete.</summary>
+    public static readonly TimeSpan PostRoll = TimeSpan.FromMilliseconds(300);
+
     private readonly DictationContext _context;
-    private readonly AudioRecorder _recorder = new();
     private readonly SynchronizationContext _ui;
+    private MicrophoneRecording? _recording;
     private CancellationTokenSource? _processing;
 
     [ObservableProperty] private WorkflowType _type;
@@ -40,6 +44,8 @@ public sealed partial class DictationWorkflow : ObservableObject
     /// <summary>The finished text, once per dictation.</summary>
     public event Action<string>? Output;
     public event Action<WorkflowPhase>? PhaseChanged;
+    /// <summary>The microphone delivered its last audio, after the short tail behind the release.</summary>
+    public event Action? CaptureEnded;
 
     public DictationWorkflow(WorkflowType type, DictationContext context)
     {
@@ -54,19 +60,20 @@ public sealed partial class DictationWorkflow : ObservableObject
     /// <summary>True once the mode was chosen explicitly (another modifier), so rules no longer apply.</summary>
     public bool ModeIsExplicit { get; private set; }
 
-    public bool IsRecording => _recorder.IsRecording;
-    public float AudioLevel => _recorder.AudioLevel;
+    public bool IsRecording => _recording?.IsRecording ?? false;
+    public float AudioLevel => _recording?.AudioLevel ?? 0;
 
     partial void OnPhaseChanged(WorkflowPhase value) => PhaseChanged?.Invoke(value);
 
-    public void Start()
+    /// <param name="requestedAt">When the shortcut was pressed, to measure how fast the microphone answers.</param>
+    public void Start(long requestedAt)
     {
         Phase = new WorkflowPhase.Running(RecordingMessage);
-        _recorder.Start(_context.MicrophoneId);
-        if (_recorder.ErrorMessage is { } error)
+        _recording = _context.Microphone.Start(_context.MicrophoneId, requestedAt, message => _ui.Post(_ =>
         {
-            Phase = new WorkflowPhase.Error(error);
-        }
+            // After the release the result reports the error instead.
+            if (Phase is WorkflowPhase.Running { Message: RecordingMessage }) Phase = new WorkflowPhase.Error(message);
+        }, null));
     }
 
     /// <summary>Changes the mode while the dictation has not reached its AI step.</summary>
@@ -83,7 +90,7 @@ public sealed partial class DictationWorkflow : ObservableObject
 
     public void Stop()
     {
-        if (_recorder.IsRecording)
+        if (IsRecording)
         {
             _ = ProcessAsync();
         }
@@ -97,7 +104,7 @@ public sealed partial class DictationWorkflow : ObservableObject
     public void Reset()
     {
         _processing?.Cancel();
-        _recorder.Cancel();
+        _recording?.Cancel();
         Phase = WorkflowPhase.IdlePhase;
     }
 
@@ -105,18 +112,28 @@ public sealed partial class DictationWorkflow : ObservableObject
     {
         var cancel = new CancellationTokenSource();
         _processing = cancel;
-        var stopping = _recorder.StopAsync();
+        var recording = _recording!;
+        var stopping = recording.StopAsync(PostRoll);
         Phase = new WorkflowPhase.Running(TranscribingMessage);
         var clip = await stopping;
-        var duration = _recorder.LastRecordingDuration;
+        CaptureEnded?.Invoke();
+        var duration = recording.Duration;
         if (cancel.IsCancellationRequested) return;
+        Log.Info($"Recorded {duration:F1} s; microphone "
+            + (recording.StartDelay is { } delay ? $"answered {delay.TotalMilliseconds:F0} ms after the shortcut" : "delivered nothing")
+            + (recording.OpenedDevice ? " (opened for this recording)" : ""));
 
+        if (recording.ErrorMessage is { } error)
+        {
+            Phase = new WorkflowPhase.Error(error);
+            return;
+        }
         if (TranscriptionQualityService.ShouldRejectRecording(duration))
         {
             Phase = new WorkflowPhase.Error(NothingRecognized);
             return;
         }
-        if (_recorder.LastRecordingWasSilent && duration >= 1)
+        if (recording.WasSilent && duration >= 1)
         {
             Phase = new WorkflowPhase.Error(SilentMicrophone);
             return;
@@ -171,6 +188,11 @@ public sealed partial class DictationWorkflow : ObservableObject
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (LocalTranscriptionException ex) when (ex.Message == LocalTranscriptionService.NoTextMessage)
+        {
+            // Noise or a short tap of the shortcut: the same quiet ending as an empty recording.
+            if (!cancel.IsCancellationRequested) Phase = new WorkflowPhase.Error(NothingRecognized);
         }
         catch (Exception ex)
         {

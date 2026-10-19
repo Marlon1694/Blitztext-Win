@@ -10,6 +10,9 @@ public sealed class LocalTranscriptionException(string message, Exception? inner
 /// </summary>
 public sealed class LocalTranscriptionService(ModelStore store) : IDisposable
 {
+    /// <summary>The model heard nothing it could write down, e.g. noise or a short tap of the shortcut.</summary>
+    public const string NoTextMessage = "Das lokale Modell hat keinen Text erkannt.";
+
     public const string SlowPreparationMessage =
         "Sprachmodell wird vorbereitet. Beim ersten Mal dauert das einen Moment, bitte Blitztext nicht beenden.";
 
@@ -62,7 +65,7 @@ public sealed class LocalTranscriptionService(ModelStore store) : IDisposable
             var engine = await EngineAsync(modelId);
             var text = await engine.TranscribeAsync(samples, cancellationToken);
             text = HallucinationFilter.RemovingTrailingCredits(text);
-            if (text.Length == 0) throw new LocalTranscriptionException("Das lokale Modell hat keinen Text erkannt.");
+            if (text.Length == 0) throw new LocalTranscriptionException(NoTextMessage);
             return text;
         }
         finally
