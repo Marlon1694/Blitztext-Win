@@ -138,8 +138,10 @@
                             <ComboBox ItemsSource="{Binding Microphones}" DisplayMemberPath="Label" SelectedValuePath="Value"
                                       SelectedValue="{Binding MicrophoneId, Mode=TwoWay}" Margin="0,0,0,14" />
 
-                            <CheckBox Style="{StaticResource ToggleSwitch}" Content="Mikrofon bereithalten" IsChecked="{Binding KeepMicrophoneOpen, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource Desc}" Text="Falls trotzdem der Anfang fehlt, z. B. mit Bluetooth-Headsets: Das Mikrofon läuft dann ständig und Blitztext nimmt den Moment vor dem Tastendruck mit. Windows zeigt dabei dauerhaft an, dass das Mikrofon benutzt wird. Der Ton bleibt im Arbeitsspeicher und wird ohne Tastendruck sofort verworfen." />
+                            <TextBlock Text="Mikrofon bereithalten" Style="{StaticResource FieldLabel}" />
+                            <ListBox Style="{StaticResource Segmented}" ItemsSource="{x:Static ui:SettingsViewModel.StandbyOptions}"
+                                     SelectedValue="{Binding MicrophoneStandby, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource Desc}" Margin="0,6,0,14" Text="Viele Mikrofone brauchen nach dem Start einen Moment, bis sie Ton liefern. Läuft das Mikrofon nach einem Diktat noch eine Minute weiter, startet das nächste sofort und bekommt sogar den Moment vor dem Tastendruck mit. Fehlt auch beim ersten Diktat der Anfang (z. B. mit Bluetooth-Headsets), hilft „Immer“. Solange das Mikrofon läuft, zeigt Windows es als benutzt an; der Ton bleibt im Arbeitsspeicher und ist ohne Diktat nach einer Sekunde überschrieben. Bluetooth-Headsets bleiben so lange im Freisprechmodus." />
 
                             <CheckBox Style="{StaticResource ToggleSwitch}" Content="Aufnahme unten am Bildschirm zeigen" IsChecked="{Binding ShowsRecordingIndicator, Mode=TwoWay}" />
                             <TextBlock Style="{StaticResource Desc}" Text="Eine kleine lila Anzeige bewegt sich mit deiner Stimme, solange Blitztext aufnimmt und schreibt. Ein Klick darauf stoppt die Aufnahme." />

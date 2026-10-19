@@ -43,7 +43,7 @@ Die Reihenfolge beim Drücken ist egal: Kommt während der Aufnahme eine weitere
 - **Sprachmemos und WhatsApp-Sprachnachrichten:** Audiodatei wählen (oder per „Öffnen mit“) und den Text bekommen, auf Wunsch mit Absätzen oder umgeschrieben.
 - **Wörterbuch:** Eigennamen in deiner Schreibweise (mit Korrektur ähnlich klingender Wörter, die Windows-Rechtschreibprüfung schützt echte Wörter) und feste Ersetzungen („n acht n“ wird „n8n“).
 - **Verlauf:** letzte Ergebnisse, mit Windows (DPAPI) für dein Konto verschlüsselt, nur auf diesem PC.
-- **Sofortstart:** Das Mikrofon wartet vorbereitet und startet beim Tastendruck in wenigen Millisekunden, nach dem Loslassen nimmt Blitztext noch 0,3 s auf, damit das letzte Wort vollständig ist. Für Mikrofone, die lange zum Aufwachen brauchen (z. B. Bluetooth-Headsets), gibt es **Mikrofon bereithalten**: Dann ist auch der Moment vor dem Tastendruck dabei.
+- **Sofortstart:** Das Mikrofon wartet vorbereitet und läuft nach einem Diktat noch eine Minute weiter. So startet das nächste Diktat sofort und bekommt sogar die 0,4 s vor dem Tastendruck mit. Nach dem Loslassen nimmt Blitztext noch 0,3 s auf, damit das letzte Wort vollständig ist. Für Mikrofone, die lange zum Aufwachen brauchen (z. B. Bluetooth-Headsets), lässt sich **Mikrofon bereithalten** auf „Immer“ stellen.
 - **Mikrofon wählbar**, Autostart, Updates aus den GitHub-Releases.
 
 ## Installation
@@ -78,7 +78,7 @@ Update-Prüfung:    GitHub-Releases dieses Projekts (abschaltbar)
 - **Apps, die als Administrator laufen:** Windows lässt normale Apps dort nicht tippen. Blitztext erkennt das und legt den Text in die Zwischenablage (`Strg + V`).
 - **`Win + L`, UAC-Dialoge und Anmeldebildschirm** sind für Blitztext nicht erreichbar.
 - **Strg + Alt** entspricht auf deutschen Tastaturen AltGr; Kürzel mit `Strg + Alt + Taste` können Sonderzeichen wie `@` oder `€` belegen.
-- **Bluetooth-Headsets** brauchen beim Start einen Moment und schalten beim Aufnehmen in den Freisprechmodus (Musik klingt dann kurz schlechter). Blitztext hält ihr Mikrofon deshalb nicht dauerhaft offen. Fehlt der Anfang, hilft **Einstellungen > Allgemein > Mikrofon bereithalten**, dann bleibt das Headset aber im Freisprechmodus.
+- **Bluetooth-Headsets** brauchen beim Start einen Moment und schalten beim Aufnehmen in den Freisprechmodus (Musik klingt dann kurz schlechter). Blitztext hält ihr Mikrofon deshalb nur nach einem Diktat kurz offen. Fehlt der Anfang, hilft **Einstellungen > Allgemein > Mikrofon bereithalten: Immer**, dann bleibt das Headset aber im Freisprechmodus.
 - **Outlook und Word** zeigen nach dem Einfügen das kleine Symbol „(Strg)“ für Einfügeoptionen. Abschalten: Datei > Optionen > E-Mail > Editoroptionen (in Word: Datei > Optionen) > Erweitert > Ausschneiden, Kopieren und Einfügen > Schaltfläche für Einfügeoptionen anzeigen.
 - **Erster Start eines Modells** dauert einige Sekunden; Blitztext lädt das gewählte Modell beim Start im Hintergrund vor.
 - Die App ist auf Deutsch.

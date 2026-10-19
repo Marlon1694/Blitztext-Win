@@ -368,11 +368,20 @@ public static class SelfTest
         try
         {
             var text = "";
-            foreach (var round in new[] { "ready", "again", "kept open" })
+            // Standby off and the first dictation after a pause start the stream; the next one within a
+            // minute, and every one with "Immer", finds it running and gets the moment before the shortcut.
+            var rounds = new (string Name, MicrophoneStandby Standby, bool PreRoll)[]
             {
-                if (round == "kept open")
+                ("standby off", MicrophoneStandby.Off, false),
+                ("first after a pause", MicrophoneStandby.AfterDictation, false),
+                ("again within a minute", MicrophoneStandby.AfterDictation, true),
+                ("standby always", MicrophoneStandby.Always, true),
+            };
+            foreach (var (round, standby, preRoll) in rounds)
+            {
+                if (state.Settings.MicrophoneStandby != standby)
                 {
-                    state.UpdateSettings(s => s.App.KeepMicrophoneOpen = true);
+                    state.UpdateSettings(s => s.App.MicrophoneStandby = standby);
                     await Task.Delay(1500);
                 }
                 target.Activate();
@@ -383,13 +392,15 @@ public static class SelfTest
                 report.Add($"{round}: '{pasted.Trim()}' [{LastRecordingLog()}]");
                 Expect(words.Length > 0 && words[0] == expected[0], $"{round}: first word missing, got '{pasted.Trim()}', expected to start with '{expected[0]}'");
                 Expect(words[^1] == expected[^1], $"{round}: last word incomplete, got '{pasted.Trim()}', expected to end with '{expected[^1]}'");
+                var reach = AudioStartsBeforeShortcut();
+                Expect(preRoll ? reach >= 300 : reach < 100, $"{round}: audio starts {reach} ms before the shortcut, expected {(preRoll ? "the pre-roll" : "no pre-roll")}");
             }
             Expect(!System.Text.RegularExpressions.Regex.IsMatch(text, @"[.!?]\p{L}"), $"dictations not separated by a space: '{text}'");
 
             // The microphone disappears mid-dictation (unplugged, Bluetooth gone). Windows cannot switch the
             // virtual cable off on the runner, so the microphone gets Windows' own error for a lost device.
             // The dictation must keep what came before, wait for the release and paste only that part.
-            state.UpdateSettings(s => s.App.KeepMicrophoneOpen = false);
+            state.UpdateSettings(s => s.App.MicrophoneStandby = MicrophoneStandby.AfterDictation);
             await Task.Delay(1000);
             target.Activate();
             await Task.Delay(500);
@@ -428,7 +439,7 @@ public static class SelfTest
             {
                 s.App.MicrophoneDeviceId = settings.MicrophoneDeviceId;
                 s.App.MuteOutputWhileRecording = settings.MuteOutputWhileRecording;
-                s.App.KeepMicrophoneOpen = settings.KeepMicrophoneOpen;
+                s.App.MicrophoneStandby = settings.MicrophoneStandby;
             });
         }
     }
@@ -505,6 +516,15 @@ public static class SelfTest
             }
         }
         throw new TimeoutException($"nothing arrived in Notepad (status {state.Status})");
+    }
+
+    /// <summary>From the last recording's log line: how far its audio reaches back before the shortcut (negative: starts after).</summary>
+    private static int AudioStartsBeforeShortcut()
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(LastRecordingLog(), @"audio starts (\d+) ms (before|after)");
+        Expect(match.Success, "no recording log line");
+        var ms = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        return match.Groups[2].Value == "before" ? ms : -ms;
     }
 
     /// <summary>The app's own note about the last recording, e.g. how fast the microphone answered.</summary>

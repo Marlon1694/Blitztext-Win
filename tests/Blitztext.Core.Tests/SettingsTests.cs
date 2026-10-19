@@ -58,6 +58,16 @@ public class SettingsTests
     }
 
     [Fact]
+    public void MicrophoneStandbyDefaultsToAMinuteAndRoundTrips()
+    {
+        Assert.Equal(MicrophoneStandby.AfterDictation, new SettingsContainer().App.MicrophoneStandby);
+        var container = new SettingsContainer();
+        container.App.MicrophoneStandby = MicrophoneStandby.Always;
+        Assert.Equal(MicrophoneStandby.Always, SettingsSerializer.Deserialize(SettingsSerializer.Serialize(container)).App.MicrophoneStandby);
+        Assert.Equal(MicrophoneStandby.AfterDictation, SettingsSerializer.Deserialize("""{ "app": { "microphoneStandby": "sometimes" } }""").App.MicrophoneStandby);
+    }
+
+    [Fact]
     public void BrokenFileGivesDefaults()
     {
         var loaded = SettingsSerializer.Deserialize("{ not json");

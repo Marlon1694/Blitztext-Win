@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Blitztext.Core.Settings;
 using Blitztext.Speech;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -12,20 +13,23 @@ public sealed record MicrophoneInfo(string Id, string Name);
 /// <summary>
 /// The microphone, kept ready between dictations. Opening a WASAPI stream (device, audio effects,
 /// format) takes a few hundred milliseconds on many PCs, which used to cost the first word. So the
-/// stream is opened and initialized while idle and a shortcut only starts it. No audio flows while
-/// it waits. Capture runs on its own thread and keeps going briefly after the shortcut is released,
-/// so the last word is complete. Audio stays in memory and never touches the disk.
+/// stream is opened and initialized while idle and a shortcut only starts it. Capture runs on its own
+/// thread and keeps going briefly after the shortcut is released, so the last word is complete.
+/// Audio stays in memory and never touches the disk.
 ///
-/// With <see cref="KeepOpen"/> the stream runs all the time and a dictation also gets the moment
-/// before the shortcut, for microphones that need long to wake up (e.g. Bluetooth headsets).
+/// Many microphones also need a moment after starting before they deliver sound (they wake from
+/// power saving; Bluetooth headsets switch profiles), which no start can be fast enough for. So with
+/// <see cref="Standby"/> the stream keeps running between dictations, for a minute after one or all
+/// the time, and a dictation also gets the 400 ms before the shortcut from a short ring buffer.
 ///
-/// Bluetooth microphones are not kept ready: an open stream may switch the headset to its hands-free
-/// profile, which makes music sound poor. They open per dictation unless KeepOpen is on.
+/// Bluetooth microphones are not kept ready while idle: an open stream may switch the headset to its
+/// hands-free profile, which makes music sound poor.
 /// </summary>
 public sealed class Microphone : IDisposable
 {
     private const int BufferMilliseconds = 100;
-    private const int KeepOpenPreRollMilliseconds = 400;
+    private const int PreRollMilliseconds = 400;
+    private static readonly TimeSpan AfterDictationStandby = TimeSpan.FromMinutes(1);
     private const uint AccessDenied = 0x80070005;
 
     private readonly Thread _thread;
@@ -41,7 +45,9 @@ public sealed class Microphone : IDisposable
     private float[] _ring = [];
     private int _ringWrite;
     private int _ringFilled;
-    private bool _keepOpen;
+    private MicrophoneStandby _standby = MicrophoneStandby.AfterDictation;
+    /// <summary>Until when the stream runs on after a dictation (AfterDictation); 0 when not.</summary>
+    private long _runUntil;
     private string? _preparedFor;
     private bool _reprepareAfterRecording;
     private int _reprepareQueued;
@@ -90,24 +96,36 @@ public sealed class Microphone : IDisposable
         }
         _reprepareAfterRecording = false;
         if (_stream is { } current && !current.IsHealthy) CloseStream();
-        if (!_keepOpen && WantedDeviceIsBluetooth())
+        if (!KeepsRunning && WantedDeviceIsBluetooth())
         {
             // Not even opened while idle, see the class comment.
             CloseStream();
             return;
         }
-        var stream = EnsureStream(_preparedFor, out _, out var error);
+        var stream = EnsureStream(_preparedFor, out var opened, out var error);
         if (stream is null)
         {
             if (error is not null) Log.Info("Microphone not ready: " + error);
             return;
         }
-        if (_keepOpen) StartStream();
+        if (opened) Log.Info($"Microphone ready: {stream.Describe()}");
+        if (KeepsRunning) StartStream();
+    }
+
+    /// <summary>True while the stream should run between dictations.</summary>
+    private bool KeepsRunning => _standby == MicrophoneStandby.Always
+        || (_standby == MicrophoneStandby.AfterDictation && _runUntil != 0 && Stopwatch.GetTimestamp() < _runUntil);
+
+    /// <summary>Stops the stream between dictations; a Bluetooth headset gets its music quality back.</summary>
+    private void Idle()
+    {
+        StopStream();
+        if (_stream is { IsBluetooth: true }) CloseStream();
     }
 
     /// <summary>
     /// Gets ready again after the device failed: Windows' new default, or the same device once it is back.
-    /// At most once every 5 s, so a device that keeps failing (with KeepOpen running) cannot spin.
+    /// At most once every 5 s, so a device that keeps failing (with the stream kept running) cannot spin.
     /// </summary>
     private void ReprepareAfterFailure()
     {
@@ -142,21 +160,20 @@ public sealed class Microphone : IDisposable
         }
     }
 
-    /// <summary>Runs the microphone all the time, so a dictation includes the moment before the shortcut.</summary>
-    public bool KeepOpen
+    /// <summary>How long the microphone keeps running between dictations, see the class comment.</summary>
+    public MicrophoneStandby Standby
     {
         set => Post(() =>
         {
-            if (_keepOpen == value) return;
-            _keepOpen = value;
-            if (value)
+            if (_standby == value) return;
+            _standby = value;
+            if (value == MicrophoneStandby.Always)
             {
                 if (EnsureStream(_preparedFor, out _, out _) is not null) StartStream();
             }
-            else if (_active is null)
+            else if (_active is null && !KeepsRunning)
             {
-                StopStream();
-                if (_stream is { IsBluetooth: true }) CloseStream();
+                Idle();
             }
         });
     }
@@ -243,6 +260,8 @@ public sealed class Microphone : IDisposable
             {
                 if (_stream is { Running: true }) ReadPackets();
                 if (_active is { StopAt: { } at } done && Stopwatch.GetTimestamp() >= at) Finish(done, keep: true);
+                // The minute after a dictation is over.
+                if (_active is null && _stream is { Running: true } && !KeepsRunning) Idle();
             }
             catch (Exception ex)
             {
@@ -280,11 +299,7 @@ public sealed class Microphone : IDisposable
             // Whatever goes wrong, the dictation must end instead of waiting forever.
             Log.Error($"Microphone start failed: {ex.GetType().Name}: {ex.Message}");
             if (_active == recording) _active = null;
-            if (!_keepOpen)
-            {
-                StopStream();
-                if (_stream is { IsBluetooth: true }) CloseStream();
-            }
+            if (!KeepsRunning) Idle();
             recording.Fail("Aufnahme konnte nicht gestartet werden: " + ex.Message);
         }
     }
@@ -296,6 +311,8 @@ public sealed class Microphone : IDisposable
         _preparedFor = deviceId;
 
         var stream = EnsureStream(deviceId, out var opened, out var error);
+        // A stream that is running already holds the moment before the shortcut.
+        var running = stream is { Running: true };
         if (stream is not null && !StartStream())
         {
             // The device went away while it waited (sleep, unplugged, default changed): open it again.
@@ -314,26 +331,24 @@ public sealed class Microphone : IDisposable
             return;
         }
         recording.Begin(stream.SampleRate, opened);
-        if (_keepOpen)
+        if (running)
         {
             var preRoll = PreRoll(stream.SampleRate);
             // The pre-roll was captured just before now.
             recording.Append(preRoll, MicrophoneRecording.Now100ns() - preRoll.Length * 10_000_000L / stream.SampleRate);
         }
         _active = recording;
-        if (opened) Log.Info($"Microphone opened: {stream.Name}, {stream.Format.SampleRate} Hz, {stream.Format.Channels} ch" + (stream.IsBluetooth ? ", Bluetooth" : ""));
+        if (opened) Log.Info($"Microphone opened: {stream.Describe()}");
     }
 
     private void Finish(MicrophoneRecording recording, bool keep)
     {
         if (keep && _stream is { Running: true }) ReadPackets();
         _active = null;
-        if (!_keepOpen)
-        {
-            StopStream();
-            // Gives the headset its music quality back.
-            if (_stream is { IsBluetooth: true }) CloseStream();
-        }
+        if (_standby == MicrophoneStandby.AfterDictation) _runUntil = Stopwatch.GetTimestamp() + (long)(AfterDictationStandby.TotalSeconds * Stopwatch.Frequency);
+        // The ring buffer starts afresh, so a next pre-roll never holds audio from before this dictation.
+        _ringWrite = _ringFilled = 0;
+        if (!KeepsRunning) Idle();
         if (keep) recording.Complete();
         else recording.Discard();
         if (_reprepareAfterRecording) Reprepare();
@@ -448,7 +463,7 @@ public sealed class Microphone : IDisposable
                 }
                 stream.Capture.ReleaseBuffer(frames);
                 if (_active is { } recording) recording.Append(mono, capturedAt);
-                if (_keepOpen) Remember(mono);
+                else Remember(mono);
             }
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
@@ -477,7 +492,7 @@ public sealed class Microphone : IDisposable
 
     private float[] PreRoll(int sampleRate)
     {
-        var count = Math.Min(_ringFilled, sampleRate * KeepOpenPreRollMilliseconds / 1000);
+        var count = Math.Min(_ringFilled, sampleRate * PreRollMilliseconds / 1000);
         var result = new float[count];
         for (var i = 0; i < count; i++)
         {
@@ -560,6 +575,8 @@ public sealed class Microphone : IDisposable
         public required bool IsBluetooth { get; init; }
         public required string Name { get; init; }
         public int SampleRate => Format.SampleRate;
+
+        public string Describe() => $"{Name}, {Format.SampleRate} Hz, {Format.Channels} ch" + (IsBluetooth ? ", Bluetooth" : "");
 
         /// <summary>False when Windows invalidated the stream, e.g. after sleep, unplugging or exclusive use.</summary>
         public bool IsHealthy
@@ -698,6 +715,9 @@ public sealed class MicrophoneRecording
     private int _sampleRate = 48_000;
     /// <summary>Capture time of the first frame, in 100 ns units of the performance counter.</summary>
     private long _firstFrameAt;
+    /// <summary>Capture time of the first sample that is not digital zero, and of the first audible one.</summary>
+    private long _firstNonZeroAt;
+    private long _firstSoundAt;
     private float _peak;
     private int _ended;
 
@@ -724,9 +744,17 @@ public sealed class MicrophoneRecording
 
     /// <summary>
     /// From the shortcut to the first recorded audio, by the microphone's own clock; negative when the
-    /// recording reaches back before the shortcut (KeepOpen). Null if no audio came.
+    /// recording reaches back before the shortcut (stream already running). Null if no audio came.
     /// </summary>
-    public TimeSpan? StartDelay => _firstFrameAt == 0 ? null : TimeSpan.FromTicks(_firstFrameAt - To100ns(_requestedAt));
+    public TimeSpan? StartDelay => Since(_firstFrameAt);
+
+    /// <summary>From the shortcut to the first sample that is not pure digital silence (a waking device sends zeros).</summary>
+    public TimeSpan? SignalDelay => Since(_firstNonZeroAt);
+
+    /// <summary>From the shortcut to the first clearly audible sample (about -34 dBFS), e.g. the first word.</summary>
+    public TimeSpan? SoundDelay => Since(_firstSoundAt);
+
+    private TimeSpan? Since(long at) => at == 0 ? null : TimeSpan.FromTicks(at - To100ns(_requestedAt));
 
     internal static long Now100ns() => To100ns(Stopwatch.GetTimestamp());
 
@@ -782,13 +810,25 @@ public sealed class MicrophoneRecording
     internal void Append(float[] mono, long capturedAt)
     {
         if (mono.Length == 0) return;
-        if (_firstFrameAt == 0) _firstFrameAt = capturedAt > 0 ? capturedAt : Now100ns();
+        if (capturedAt <= 0) capturedAt = Now100ns();
+        if (_firstFrameAt == 0) _firstFrameAt = capturedAt;
         double sum = 0;
         float peak = 0;
-        foreach (var sample in mono)
+        for (var i = 0; i < mono.Length; i++)
         {
+            var sample = mono[i];
             sum += sample * sample;
-            peak = Math.Max(peak, Math.Abs(sample));
+            var level = Math.Abs(sample);
+            peak = Math.Max(peak, level);
+            if (_firstSoundAt == 0 && level >= 0.02f)
+            {
+                _firstSoundAt = capturedAt + i * 10_000_000L / _sampleRate;
+                if (_firstNonZeroAt == 0) _firstNonZeroAt = _firstSoundAt;
+            }
+            else if (_firstNonZeroAt == 0 && level > 0)
+            {
+                _firstNonZeroAt = capturedAt + i * 10_000_000L / _sampleRate;
+            }
         }
         _peak = Math.Max(_peak, peak);
         if (IsRecording)

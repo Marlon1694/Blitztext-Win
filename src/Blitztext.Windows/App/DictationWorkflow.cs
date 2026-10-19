@@ -142,10 +142,10 @@ public sealed partial class DictationWorkflow : ObservableObject
         CaptureEnded?.Invoke();
         var duration = recording.Duration;
         if (cancel.IsCancellationRequested) return;
-        Log.Info($"Recorded {duration:F1} s; audio starts "
-            + (recording.StartDelay is { } delay
-                ? delay >= TimeSpan.Zero ? $"{delay.TotalMilliseconds:F0} ms after the shortcut" : $"{-delay.TotalMilliseconds:F0} ms before the shortcut"
-                : "nowhere: the microphone delivered nothing")
+        Log.Info($"Recorded {duration:F1} s; audio starts {Relative(recording.StartDelay)}"
+            + (recording.SignalDelay is { } signal && signal - (recording.StartDelay ?? signal) > TimeSpan.FromMilliseconds(50)
+                ? $", only digital silence until {Relative(signal)}" : "")
+            + $", first sound {Relative(recording.SoundDelay)}"
             + (recording.OpenedDevice ? " (microphone opened for this recording)" : ""));
 
         if (recording.ErrorMessage is { } error)
@@ -230,6 +230,14 @@ public sealed partial class DictationWorkflow : ObservableObject
             if (!cancel.IsCancellationRequested) Phase = new WorkflowPhase.Error(ex.Message);
         }
     }
+
+    /// <summary>"120 ms after the shortcut", "380 ms before the shortcut" or "never".</summary>
+    private static string Relative(TimeSpan? delay) => delay switch
+    {
+        null => "never",
+        { } d when d >= TimeSpan.Zero => $"{d.TotalMilliseconds:F0} ms after the shortcut",
+        { } d => $"{-d.TotalMilliseconds:F0} ms before the shortcut",
+    };
 
     public static string StepMessage(WorkflowType type) => type switch
     {

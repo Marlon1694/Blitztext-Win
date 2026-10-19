@@ -14,6 +14,19 @@ public enum HotkeyMode
     Toggle,
 }
 
+/// <summary>How long the microphone keeps running between dictations.</summary>
+[JsonConverter(typeof(TolerantEnumConverter<MicrophoneStandby>))]
+public enum MicrophoneStandby
+{
+    // First, so unknown values in the settings file fall back to it.
+    /// <summary>Runs on for a minute after a dictation, so the next one starts at once with the moment before.</summary>
+    AfterDictation,
+    /// <summary>Stops after each dictation; the next one starts it again.</summary>
+    Off,
+    /// <summary>Runs all the time: every dictation starts at once, also for microphones slow to wake up.</summary>
+    Always,
+}
+
 [JsonConverter(typeof(TolerantEnumConverter<HistoryRetention>))]
 public enum HistoryRetention
 {
@@ -91,8 +104,8 @@ public sealed class AppSettings
     public bool ShowsRecordingIndicator { get; set; } = true;
     /// <summary>Microphone endpoint ID; empty for the Windows default.</summary>
     public string MicrophoneDeviceId { get; set; } = "";
-    /// <summary>The microphone runs all the time, so a dictation also gets the moment before the shortcut.</summary>
-    public bool KeepMicrophoneOpen { get; set; }
+    /// <summary>How long the microphone keeps running between dictations.</summary>
+    public MicrophoneStandby MicrophoneStandby { get; set; } = MicrophoneStandby.AfterDictation;
     /// <summary>Look for new versions on the GitHub releases page.</summary>
     public bool CheckForUpdates { get; set; } = true;
 

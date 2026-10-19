@@ -118,7 +118,7 @@ public sealed partial class AppState : ObservableObject
         Hotkeys.UpdateHotkeys(_settings.App.ResolvedHotkeys());
         Hotkeys.HotkeyPressed += (_, e) => HandleHotkey(e);
         Microphone.Prepare(_settings.App.MicrophoneDeviceId);
-        Microphone.KeepOpen = _settings.App.KeepMicrophoneOpen;
+        Microphone.Standby = _settings.App.MicrophoneStandby;
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
         Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
         History.Changed += (_, _) => OnPropertyChanged(nameof(LastHistoryEntry));
@@ -163,9 +163,9 @@ public sealed partial class AppState : ObservableObject
         {
             Microphone.Prepare(after.MicrophoneDeviceId);
         }
-        if (before.KeepMicrophoneOpen != after.KeepMicrophoneOpen)
+        if (before.MicrophoneStandby != after.MicrophoneStandby)
         {
-            Microphone.KeepOpen = after.KeepMicrophoneOpen;
+            Microphone.Standby = after.MicrophoneStandby;
         }
         if (before.HistoryRetention != after.HistoryRetention)
         {

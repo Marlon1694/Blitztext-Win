@@ -301,10 +301,17 @@ public sealed class SettingsViewModel : PageModel
         set => App.UpdateSettings(s => s.App.ShowsRecordingIndicator = value);
     }
 
-    public bool KeepMicrophoneOpen
+    public static IReadOnlyList<Option> StandbyOptions { get; } =
+    [
+        new Option("Aus", MicrophoneStandby.Off),
+        new Option("1 Minute", MicrophoneStandby.AfterDictation),
+        new Option("Immer", MicrophoneStandby.Always),
+    ];
+
+    public MicrophoneStandby MicrophoneStandby
     {
-        get => App.Settings.KeepMicrophoneOpen;
-        set => App.UpdateSettings(s => s.App.KeepMicrophoneOpen = value);
+        get => App.Settings.MicrophoneStandby;
+        set => App.UpdateSettings(s => s.App.MicrophoneStandby = value);
     }
 
     public bool MuteOutputWhileRecording
