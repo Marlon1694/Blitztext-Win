@@ -54,6 +54,8 @@ Die Reihenfolge beim Drücken ist egal: Kommt während der Aufnahme eine weitere
 5. In Windows unter **Einstellungen > Datenschutz und Sicherheit > Mikrofon** muss „Desktop-Apps Zugriff auf das Mikrofon erlauben“ an sein.
 6. `Strg + Win` halten, sprechen, loslassen.
 
+**Noch kein Release?** Dann steckt der Installer in jedem Build: [Actions](https://github.com/Marlon1694/Blitztext-Win/actions/workflows/build.yml) > neuester Lauf von **Build** > ganz unten bei **Artifacts** > **Blitztext-Windows** laden (nur angemeldet, rund 90 Tage lang). Die ZIP enthält `Blitztext-Setup-x.y.z.exe` und die portable ZIP. Einen Release-Entwurf sehen nur Leute mit Schreibrecht unter [Releases](https://github.com/Marlon1694/Blitztext-Win/releases).
+
 **Voraussetzungen:** Windows 10 (1809) oder Windows 11, 64 Bit. Rund 1 GB freier Arbeitsspeicher für das Sprachmodell.
 
 ## Datenschutz
@@ -110,7 +112,11 @@ tests/                   Unit-Tests (portiert aus dem macOS-Original) und Speech
 installer/               Inno-Setup-Skript
 ```
 
-Die GitHub Action baut bei jedem Push, testet unter Linux und Windows, führt den Selbsttest mit echten Modellen aus und erstellt Installer und ZIP. Ein Tag `v*` veröffentlicht ein Release.
+Die GitHub Action baut bei jedem Push, testet unter Linux und Windows, führt den Selbsttest mit echten Modellen aus und erstellt Installer und ZIP (Artifact **Blitztext-Windows**).
+
+- **Release-Entwurf:** Actions > Build > **Run workflow** mit Haken bei „Release-Entwurf mit Installer anlegen“. Der Entwurf hat die Version aus `Directory.Build.props` und ist nur für Leute mit Schreibrecht sichtbar.
+- **Veröffentlichen:** Tag pushen (`git tag v1.0.0` und `git push origin v1.0.0`). Die Action baut dann neu und veröffentlicht den Entwurf mit der Version 1.0.0. Über **Publish release** im Entwurf ginge es auch, dann zeigt die App aber „1.0.0-ci.N“ als Version.
+- Für jede weitere Version zuerst `Version` in `Directory.Build.props` erhöhen.
 
 ## Lizenz und Marke
 

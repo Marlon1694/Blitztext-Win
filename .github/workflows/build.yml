@@ -16,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.ref }}
+  # Release runs get their own group so a push to the branch does not cancel them.
+  group: build-${{ github.ref }}${{ inputs.release && '-release' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -55,8 +56,8 @@ jobs:
             $version = "${{ github.ref_name }}".TrimStart("v")
             $informational = $version
           } else {
-            $version = "1.0.0"
-            $informational = "1.0.0-ci.${{ github.run_number }}+$("${{ github.sha }}".Substring(0, 7))"
+            $version = (Select-Xml -Path Directory.Build.props -XPath "//Version" | Select-Object -First 1).Node.InnerText
+            $informational = "$version-ci.${{ github.run_number }}+$("${{ github.sha }}".Substring(0, 7))"
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "informational=$informational" >> $env:GITHUB_OUTPUT
@@ -141,6 +142,21 @@ jobs:
         with:
           name: Blitztext-Windows
           path: dist
+      - name: Prepare the draft (manual runs)
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.windows.outputs.version }}
+        run: |
+          # A manual run must never change a published release.
+          if gh api "repos/$GH_REPO/releases/tags/$TAG" --silent 2>/dev/null; then
+            echo "::error::$TAG ist schon veröffentlicht. Zuerst die Version in Directory.Build.props erhöhen."
+            exit 1
+          fi
+          # Replace an older draft so the new one points at this commit.
+          gh api "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" |
+            xargs -r -I{} gh api -X DELETE "repos/$GH_REPO/releases/{}"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.windows.outputs.version) }}

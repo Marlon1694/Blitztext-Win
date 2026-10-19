@@ -27,7 +27,6 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
@@ -41,8 +40,8 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=force
 RestartApplications=no
-LicenseFile=..\LICENSE
 ChangesAssociations=yes
+ShowLanguageDialog=auto
 
 [Languages]
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"

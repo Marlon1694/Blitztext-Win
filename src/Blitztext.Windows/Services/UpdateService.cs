@@ -76,6 +76,13 @@ public sealed partial class UpdateService : ObservableObject
                 StatusText = $"Blitztext ist aktuell (Version {CurrentVersionText}).";
             }
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // No published release yet, so nothing is newer than this build.
+            AvailableVersion = null;
+            _setupUrl = null;
+            StatusText = $"Blitztext ist aktuell (Version {CurrentVersionText}).";
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             if (userInitiated) StatusText = "Update-Prüfung fehlgeschlagen. Bitte später nochmal versuchen.";
