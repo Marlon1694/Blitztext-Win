@@ -77,6 +77,11 @@ public sealed class HotkeyService : IDisposable
     /// </summary>
     public long UserInput => Interlocked.Read(ref _userInput);
 
+    /// <summary>True while clicks are counted too, see <see cref="UserInput"/>.</summary>
+    public bool CountsClicks => _mouseHook != IntPtr.Zero;
+
+    private static readonly uint OwnProcessId = (uint)Environment.ProcessId;
+
     public HotkeyService()
     {
         _ui = SynchronizationContext.Current ?? new SynchronizationContext();
@@ -146,12 +151,16 @@ public sealed class HotkeyService : IDisposable
 
     // MARK: - Hook
 
-    /// <summary>Only counts clicks; never delays or swallows mouse input.</summary>
+    /// <summary>Only counts clicks, not those on Blitztext's own windows; never delays or swallows mouse input.</summary>
     private IntPtr MouseCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0 && wParam.ToInt32() is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN)
         {
-            Interlocked.Increment(ref _userInput);
+            // MSLLHOOKSTRUCT starts with the click position. The recording pill takes no focus, so a
+            // click on it leaves the cursor in the app where it was.
+            var point = Marshal.PtrToStructure<POINT>(lParam);
+            GetWindowThreadProcessId(WindowFromPoint(point), out var processId);
+            if (processId != OwnProcessId) Interlocked.Increment(ref _userInput);
         }
         return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
     }

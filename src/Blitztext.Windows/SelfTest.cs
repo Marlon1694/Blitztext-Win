@@ -394,11 +394,13 @@ public static class SelfTest
             target.Activate();
             await Task.Delay(500);
             var logLines = File.ReadLines(LogFile).Count();
+            TrayStatus? whileHeld = null;
             var partial = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length,
-                midway: () =>
+                midway: async () =>
                 {
                     state.Microphone.SimulateDeviceLoss();
-                    return Task.CompletedTask;
+                    await Task.Delay(800);
+                    whileHeld = state.Status;
                 },
                 midwayAfter: TimeSpan.FromSeconds(2));
             text += partial;
@@ -406,6 +408,7 @@ public static class SelfTest
             report.Add($"device lost after 2 s: '{partial.Trim()}' [{LastRecordingLog()}]");
             var partWords = Words(partial);
             Expect(noticed, "device lost: the recording did not notice");
+            Expect(whileHeld is TrayStatus.Failure, $"device lost: tray showed {whileHeld} while the keys were still held");
             Expect(partWords.Length > 0 && partWords[0] == expected[0], $"device lost: got '{partial.Trim()}'");
             Expect(partWords.Length < expected.Length, $"device lost: expected only the part before the loss, got '{partial.Trim()}'");
             Expect(state.ActiveWorkflow is not { IsRecording: true }, "device lost: still recording");
@@ -495,7 +498,7 @@ public static class SelfTest
                 return field.TextBefore[lengthBefore..];
             }
             if (state.ActiveWorkflow?.Phase is WorkflowPhase.Error error) throw new InvalidOperationException("dictation failed: " + error.Message);
-            if (state.Status is TrayStatus.Failure)
+            if (state.Status is TrayStatus.Failure && state.ActiveWorkflow?.Phase is not WorkflowPhase.Running)
             {
                 var line = File.ReadLines(LogFile).LastOrDefault(l => l.Contains("ended with an error", StringComparison.Ordinal));
                 throw new InvalidOperationException("dictation failed: " + (line ?? "no log"));

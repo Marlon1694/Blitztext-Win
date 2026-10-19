@@ -28,6 +28,7 @@ public sealed partial class DictationWorkflow : ObservableObject
     public const string TranscribingMessage = "Wird transkribiert ...";
     public const string NothingRecognized = "Keine Aufnahme erkannt.";
     public const string MicrophoneLost = "Das Mikrofon wurde während der Aufnahme getrennt.";
+    public const string MicrophoneLostWaiting = "Mikrofon getrennt. Taste loslassen, der Text bis hierhin wird eingefügt.";
     public const string SilentMicrophone =
         "Das Mikrofon liefert keinen Ton. In Windows unter Einstellungen > Datenschutz und Sicherheit > Mikrofon den Zugriff für Desktop-Apps erlauben oder ein anderes Mikrofon wählen.";
 
@@ -93,7 +94,8 @@ public sealed partial class DictationWorkflow : ObservableObject
             // The microphone went away mid-dictation: the audio so far is kept. The sound comes back now;
             // the text follows at the release, or right away when no key is held.
             CaptureEnded?.Invoke();
-            if (!EndsOnRelease) Stop();
+            if (EndsOnRelease) Phase = new WorkflowPhase.Running(MicrophoneLostWaiting);
+            else Stop();
         }
     }
 

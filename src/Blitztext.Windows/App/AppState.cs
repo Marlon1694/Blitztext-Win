@@ -452,7 +452,7 @@ public sealed partial class AppState : ObservableObject
                 output = InsertionFitter.Fit(text, field.TextBefore, field.TextAfter);
             }
             else if (_lastPaste is { } last && _activePasteTarget?.Window == last.Window
-                && DateTime.UtcNow - last.At < LastPasteMemory && Hotkeys.IsRunning && Hotkeys.UserInput == last.UserInput)
+                && DateTime.UtcNow - last.At < LastPasteMemory && Hotkeys.IsRunning && Hotkeys.CountsClicks && Hotkeys.UserInput == last.UserInput)
             {
                 // The field could not be read and nothing was typed or clicked since: the cursor most likely
                 // still sits behind the last dictation. Only the space and a capital, no lowercasing on a guess.
@@ -489,7 +489,12 @@ public sealed partial class AppState : ObservableObject
                 Status = TrayStatus.IdleStatus;
                 break;
             case WorkflowPhase.Running running:
-                Status = workflow.IsRecording ? new TrayStatus.Recording(workflow.Type) : new TrayStatus.Processing(workflow.Type);
+                Status = running.Message switch
+                {
+                    DictationWorkflow.MicrophoneLostWaiting => new TrayStatus.Failure(workflow.Type),
+                    _ when workflow.IsRecording => new TrayStatus.Recording(workflow.Type),
+                    _ => new TrayStatus.Processing(workflow.Type),
+                };
                 // Shortcut users never see the window; a long model load would look like a hang.
                 if (running.Message == LocalTranscriptionService.SlowPreparationMessage && !IsPopoverShown)
                 {

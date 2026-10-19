@@ -301,7 +301,12 @@ public sealed class Microphone : IDisposable
             // The device went away while it waited (sleep, unplugged, default changed): open it again.
             CloseStream();
             stream = EnsureStream(deviceId, out opened, out error);
-            if (stream is not null && !StartStream()) stream = null;
+            if (stream is not null && !StartStream())
+            {
+                // Unusable; not kept open either (a Bluetooth headset would stay in hands-free mode).
+                CloseStream();
+                stream = null;
+            }
         }
         if (stream is null)
         {
@@ -865,8 +870,12 @@ public sealed class MicrophoneRecording
 /// </summary>
 public sealed class SystemAudioMuter
 {
-    /// <summary>Outputs Blitztext muted and has not unmuted yet, e.g. a headset that dropped meanwhile.</summary>
-    private readonly HashSet<string> _muted = [];
+    /// <summary>
+    /// Outputs Blitztext muted and has not unmuted yet, e.g. a headset that dropped meanwhile. Retried for
+    /// a while only, so a mute the user sets later on that headset is not undone.
+    /// </summary>
+    private readonly Dictionary<string, DateTime> _muted = [];
+    private static readonly TimeSpan RetryUnmuteFor = TimeSpan.FromMinutes(10);
     private bool _muting;
 
     public void Mute()
@@ -882,7 +891,7 @@ public sealed class SystemAudioMuter
             // Already silent: nothing to do and nothing to restore later.
             if (volume.Mute) return;
             volume.Mute = true;
-            _muted.Add(device.ID);
+            _muted[device.ID] = DateTime.UtcNow;
             _muting = true;
         }
         catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
@@ -897,19 +906,23 @@ public sealed class SystemAudioMuter
         try
         {
             using var enumerator = new MMDeviceEnumerator();
-            foreach (var id in _muted.ToList())
+            foreach (var (id, mutedAt) in _muted.ToList())
             {
                 try
                 {
                     using var device = enumerator.GetDevice(id);
-                    // Gone for now (unplugged, Bluetooth off): try again next time.
-                    if (device.State != DeviceState.Active) continue;
-                    device.AudioEndpointVolume.Mute = false;
-                    _muted.Remove(id);
+                    if (device.State == DeviceState.Active)
+                    {
+                        device.AudioEndpointVolume.Mute = false;
+                        _muted.Remove(id);
+                        continue;
+                    }
                 }
                 catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
                 {
                 }
+                // Gone for now (unplugged, Bluetooth off): try again next time, for a while.
+                if (DateTime.UtcNow - mutedAt > RetryUnmuteFor) _muted.Remove(id);
             }
         }
         catch (COMException)
