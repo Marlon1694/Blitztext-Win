@@ -45,6 +45,8 @@ public sealed class Microphone : IDisposable
     private string? _preparedFor;
     private bool _reprepareAfterRecording;
     private int _reprepareQueued;
+    private bool _simulateDeviceLoss;
+    private long _lastDeviceFailure;
     private bool _disposed;
 
     public Microphone()
@@ -101,6 +103,18 @@ public sealed class Microphone : IDisposable
             return;
         }
         if (_keepOpen) StartStream();
+    }
+
+    /// <summary>
+    /// Gets ready again after the device failed: Windows' new default, or the same device once it is back.
+    /// At most once every 5 s, so a device that keeps failing (with KeepOpen running) cannot spin.
+    /// </summary>
+    private void ReprepareAfterFailure()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var recently = _lastDeviceFailure != 0 && Stopwatch.GetElapsedTime(_lastDeviceFailure, now) < TimeSpan.FromSeconds(5);
+        _lastDeviceFailure = now;
+        if (!recently || _reprepareAfterRecording) QueueReprepare();
     }
 
     /// <summary>Device notifications come in bursts and on other threads; one re-prepare covers them.</summary>
@@ -171,6 +185,12 @@ public sealed class Microphone : IDisposable
         recording.StopAt = Stopwatch.GetTimestamp() + (long)(postRoll.TotalSeconds * Stopwatch.Frequency);
     });
 
+    /// <summary>
+    /// For the self-test: the next read fails the way Windows reports a microphone that went away
+    /// (AUDCLNT_E_DEVICE_INVALIDATED), so the real error path runs without unplugging anything.
+    /// </summary>
+    internal void SimulateDeviceLoss() => Post(() => _simulateDeviceLoss = true);
+
     internal void Cancel(MicrophoneRecording recording) => Post(() =>
     {
         if (_active == recording) Finish(recording, keep: false);
@@ -234,8 +254,7 @@ public sealed class Microphone : IDisposable
                     _active = null;
                     failed.EndedByDevice();
                 }
-                // One attempt to get ready again; a repeated failure needs a running stream, so this cannot spin.
-                if (_keepOpen || _reprepareAfterRecording) QueueReprepare();
+                ReprepareAfterFailure();
             }
         }
         if (_active is { } active) active.Fail("Blitztext wurde beendet.");
@@ -402,6 +421,11 @@ public sealed class Microphone : IDisposable
         var stream = _stream!;
         try
         {
+            if (_simulateDeviceLoss)
+            {
+                _simulateDeviceLoss = false;
+                throw new COMException("Simulated device loss", unchecked((int)0x88890004));
+            }
             while (stream.Capture.GetNextPacketSize() > 0)
             {
                 var data = stream.Capture.GetBuffer(out var frames, out var flags, out _, out var capturedAt);
@@ -432,8 +456,7 @@ public sealed class Microphone : IDisposable
                 _active = null;
                 recording.EndedByDevice();
             }
-            // A re-prepare asked for during the recording (e.g. the new default device) runs now.
-            if (_reprepareAfterRecording) QueueReprepare();
+            ReprepareAfterFailure();
         }
     }
 

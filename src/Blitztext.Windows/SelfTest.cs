@@ -365,7 +365,6 @@ public static class SelfTest
 
         var (target, before) = await OpenNotepad();
         var report = new List<string>();
-        var cableOff = false;
         try
         {
             var text = "";
@@ -387,48 +386,40 @@ public static class SelfTest
             }
             Expect(!System.Text.RegularExpressions.Regex.IsMatch(text, @"[.!?]\p{L}"), $"dictations not separated by a space: '{text}'");
 
-            // The microphone disappears mid-dictation (unplugged, Bluetooth gone): the dictation ends with
-            // what came so far instead of hanging, and works again once the device is back.
+            // The microphone disappears mid-dictation (unplugged, Bluetooth gone). Windows cannot switch the
+            // virtual cable off on the runner, so the microphone gets Windows' own error for a lost device.
+            // The dictation must keep what came before, wait for the release and paste only that part.
             state.UpdateSettings(s => s.App.KeepMicrophoneOpen = false);
             await Task.Delay(1000);
             target.Activate();
             await Task.Delay(500);
-            // Switching the device off takes PowerShell a few seconds, so it starts right away and runs
-            // alongside the dictation.
             var logLines = File.ReadLines(LogFile).Count();
-            var switchOff = "";
-            cableOff = true;
             var partial = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length,
-                midway: async () => switchOff = await SetCableMicrophoneEnabled(false), midwayAfter: TimeSpan.FromSeconds(0.5));
+                midway: () =>
+                {
+                    state.Microphone.SimulateDeviceLoss();
+                    return Task.CompletedTask;
+                },
+                midwayAfter: TimeSpan.FromSeconds(2));
             text += partial;
-            var gone = VirtualCable() is null;
             var noticed = File.ReadLines(LogFile).Skip(logLines).Any(l => l.Contains("Microphone stopped delivering", StringComparison.Ordinal));
-            report.Add($"unplugged ({(gone ? "device gone" : "device could not be switched off: " + switchOff)}, "
-                + $"{(noticed ? "recording ended with the device" : "no device error seen")}): '{partial.Trim()}' [{LastRecordingLog()}]");
-            Expect(Words(partial) is { Length: > 0 } partWords && partWords[0] == expected[0], $"unplugged: got '{partial.Trim()}'");
-            Expect(state.ActiveWorkflow is not { IsRecording: true }, "unplugged: still recording");
-            if (gone)
-            {
-                Expect(noticed, "unplugged: the recording did not notice the microphone going away");
-                Expect(Words(partial).Length < expected.Length, $"unplugged: expected only the part before the switch-off, got '{partial.Trim()}'");
-            }
-
-            await SetCableMicrophoneEnabled(true);
-            cableOff = false;
-            for (var i = 0; i < 40 && VirtualCable() is null; i++) await Task.Delay(250);
-            Expect(VirtualCable() is not null, "VB-CABLE did not come back");
+            report.Add($"device lost after 2 s: '{partial.Trim()}' [{LastRecordingLog()}]");
+            var partWords = Words(partial);
+            Expect(noticed, "device lost: the recording did not notice");
+            Expect(partWords.Length > 0 && partWords[0] == expected[0], $"device lost: got '{partial.Trim()}'");
+            Expect(partWords.Length < expected.Length, $"device lost: expected only the part before the loss, got '{partial.Trim()}'");
+            Expect(state.ActiveWorkflow is not { IsRecording: true }, "device lost: still recording");
             await Task.Delay(1500);
             target.Activate();
             await Task.Delay(500);
             var again = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length);
-            report.Add($"plugged in again: '{again.Trim()}' [{LastRecordingLog()}]");
+            report.Add($"after the loss: '{again.Trim()}' [{LastRecordingLog()}]");
             var againWords = Words(again);
-            Expect(againWords.Length > 0 && againWords[0] == expected[0] && againWords[^1] == expected[^1], $"plugged in again: got '{again.Trim()}'");
+            Expect(againWords.Length > 0 && againWords[0] == expected[0] && againWords[^1] == expected[^1], $"after the loss: got '{again.Trim()}'");
             return string.Join(" | ", report);
         }
         finally
         {
-            if (cableOff) await SetCableMicrophoneEnabled(true);
             CloseNotepads(before);
             state.UpdateSettings(s =>
             {
@@ -440,39 +431,6 @@ public static class SelfTest
     }
 
     private static string LogFile => Path.Combine(AppPaths.LogsDirectory, "blitztext.log");
-
-    /// <summary>
-    /// Switches VB-CABLE's microphone endpoint off or on, as when a microphone is disabled in the Windows
-    /// sound settings or unplugged. Returns what PowerShell said, for the report.
-    /// </summary>
-    private static async Task<string> SetCableMicrophoneEnabled(bool enabled)
-    {
-        var verb = enabled ? "Enable" : "Disable";
-        var start = new ProcessStartInfo("powershell.exe",
-            "-NoProfile -Command \"$ErrorActionPreference = 'Stop'; "
-            + $"Get-PnpDevice -Class AudioEndpoint | Where-Object FriendlyName -like 'CABLE Output*' | {verb}-PnpDevice -Confirm:$false\"")
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("powershell did not start");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try
-        {
-            await process.WaitForExitAsync(timeout.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            process.Kill(entireProcessTree: true);
-            return "timed out";
-        }
-        var said = ((await output) + " " + (await error)).Trim();
-        return process.ExitCode == 0 ? (said.Length == 0 ? "ok" : said) : $"exit {process.ExitCode}: {said}";
-    }
 
     /// <summary>One dictation; returns the text it added to Notepad.</summary>
     private static async Task<string> DictateOnce(AppState state, TargetApp target, string speakerId, float[] speech, int lengthBefore,
