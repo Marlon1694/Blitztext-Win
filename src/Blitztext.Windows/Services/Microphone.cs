@@ -103,7 +103,12 @@ public sealed class Microphone : IDisposable
 
     internal void Stop(MicrophoneRecording recording, TimeSpan postRoll) => Post(() =>
     {
-        if (_active != recording) return;
+        if (_active != recording)
+        {
+            // Already ended (device gone, failed start): hand over what there is.
+            recording.Complete();
+            return;
+        }
         recording.StopAt = Stopwatch.GetTimestamp() + (long)(postRoll.TotalSeconds * Stopwatch.Frequency);
     });
 
@@ -155,6 +160,21 @@ public sealed class Microphone : IDisposable
 
     private void Begin(MicrophoneRecording recording, string? deviceId)
     {
+        try
+        {
+            BeginRecording(recording, deviceId);
+        }
+        catch (Exception ex)
+        {
+            // Whatever goes wrong, the dictation must end instead of waiting forever.
+            Log.Error($"Microphone start failed: {ex.GetType().Name}: {ex.Message}");
+            if (_active == recording) _active = null;
+            recording.Fail("Aufnahme konnte nicht gestartet werden: " + ex.Message);
+        }
+    }
+
+    private void BeginRecording(MicrophoneRecording recording, string? deviceId)
+    {
         // A new shortcut ends the previous recording's last moment early.
         if (_active is { } previous) Finish(previous, keep: true);
         _preparedFor = deviceId;
@@ -175,6 +195,7 @@ public sealed class Microphone : IDisposable
         recording.Begin(stream.SampleRate, opened);
         if (_keepOpen) recording.Append(PreRoll(stream.SampleRate));
         _active = recording;
+        if (opened) Log.Info($"Microphone opened: {stream.Device.FriendlyName}, {stream.Format.SampleRate} Hz, {stream.Format.Channels} ch");
     }
 
     private void Finish(MicrophoneRecording recording, bool keep)
@@ -213,11 +234,12 @@ public sealed class Microphone : IDisposable
             opened = true;
             return _stream;
         }
-        catch (COMException ex) when ((uint)ex.HResult == AccessDenied)
+        catch (Exception ex) when (ex is UnauthorizedAccessException || (uint)ex.HResult == AccessDenied)
         {
+            // .NET turns E_ACCESSDENIED into UnauthorizedAccessException.
             error = "Windows erlaubt Blitztext keinen Zugriff aufs Mikrofon. Einstellungen > Datenschutz und Sicherheit > Mikrofon: Desktop-Apps den Zugriff erlauben.";
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException or InvalidCastException)
         {
             error = "Aufnahme konnte nicht gestartet werden: " + ex.Message;
         }
@@ -235,9 +257,9 @@ public sealed class Microphone : IDisposable
             stream.Running = true;
             return true;
         }
-        catch (COMException ex)
+        catch (Exception ex) when (ex is COMException or UnauthorizedAccessException or InvalidOperationException)
         {
-            Log.Info($"Microphone start failed: 0x{ex.HResult:X8}");
+            Log.Info($"Microphone start failed: {ex.GetType().Name} 0x{ex.HResult:X8}");
             return false;
         }
     }
@@ -252,7 +274,7 @@ public sealed class Microphone : IDisposable
             stream.Client.Reset();
             stream.Running = false;
         }
-        catch (COMException)
+        catch (Exception ex) when (ex is COMException or InvalidOperationException)
         {
             CloseStream();
         }
@@ -290,10 +312,10 @@ public sealed class Microphone : IDisposable
                 if (_keepOpen) Remember(mono);
             }
         }
-        catch (COMException ex)
+        catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
         {
             // Unplugged or disabled while recording: keep what came so far.
-            Log.Info($"Microphone stopped delivering: 0x{ex.HResult:X8}");
+            Log.Info($"Microphone stopped delivering: {ex.GetType().Name} 0x{ex.HResult:X8}");
             CloseStream();
             if (_active is { } recording)
             {
@@ -456,6 +478,7 @@ public sealed class MicrophoneRecording
     private int _sampleRate = 48_000;
     private long _firstAudioAt;
     private float _peak;
+    private int _ended;
 
     internal MicrophoneRecording(Microphone microphone, long requestedAt, Action<string> onFailed)
     {
@@ -493,18 +516,28 @@ public sealed class MicrophoneRecording
             Duration = Stopwatch.GetElapsedTime(_requestedAt).TotalSeconds;
             AudioLevel = 0;
             _microphone.Stop(this, postRoll);
+            // A stuck audio driver must not leave the dictation hanging: take what came so far.
+            _ = Task.Delay(postRoll + TimeSpan.FromSeconds(3)).ContinueWith(_ =>
+            {
+                if (_done.Task.IsCompleted) return;
+                Log.Error("Microphone did not finish in time; using the audio so far");
+                Complete();
+            }, TaskScheduler.Default);
         }
         return _done.Task;
     }
 
     public void Cancel()
     {
-        if (!IsRecording && _done.Task.IsCompleted) return;
         IsRecording = false;
         AudioLevel = 0;
+        if (!TryEnd()) return;
         _microphone.Cancel(this);
         _done.TrySetResult(new AudioClip([]));
     }
+
+    /// <summary>True for the first of complete, discard, fail or cancel; the others then do nothing.</summary>
+    private bool TryEnd() => Interlocked.Exchange(ref _ended, 1) == 0;
 
     internal long? StopAt { get; set; }
 
@@ -539,6 +572,7 @@ public sealed class MicrophoneRecording
     {
         IsRecording = false;
         AudioLevel = 0;
+        if (!TryEnd()) return;
         float[] raw;
         lock (_lock)
         {
@@ -546,7 +580,18 @@ public sealed class MicrophoneRecording
             _samples = [];
         }
         var rate = _sampleRate;
-        _ = Task.Run(() => _done.TrySetResult(new AudioClip(AudioConversion.Resample(raw, rate, AudioClip.SampleRate))));
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                _done.TrySetResult(new AudioClip(AudioConversion.Resample(raw, rate, AudioClip.SampleRate)));
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Recording conversion failed: {ex.GetType().Name}: {ex.Message}");
+                _done.TrySetResult(new AudioClip([]));
+            }
+        });
     }
 
     internal void Discard()
@@ -554,13 +599,14 @@ public sealed class MicrophoneRecording
         IsRecording = false;
         AudioLevel = 0;
         lock (_lock) _samples = [];
-        _done.TrySetResult(new AudioClip([]));
+        if (TryEnd()) _done.TrySetResult(new AudioClip([]));
     }
 
     internal void Fail(string message)
     {
         IsRecording = false;
         AudioLevel = 0;
+        if (!TryEnd()) return;
         ErrorMessage = message;
         _done.TrySetResult(new AudioClip([]));
         _onFailed(message);

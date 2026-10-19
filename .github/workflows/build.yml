@@ -106,6 +106,8 @@ jobs:
           if (Test-Path speech.wav) { $arguments += @("--audio", "$PWD\speech.wav") }
           $process = Start-Process -FilePath publish\Blitztext.exe -ArgumentList $arguments -PassThru -Wait
           Get-Content selftest\selftest.log
+          Write-Host "--- app log (never contains dictated text) ---"
+          Get-Content selftest\home\Local\logs\blitztext.log -Tail 60 -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) { throw "Self-test failed with exit code $($process.ExitCode)" }
 
       - name: Upload self-test results
