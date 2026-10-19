@@ -234,6 +234,8 @@ public sealed class Microphone : IDisposable
                     _active = null;
                     failed.EndedByDevice();
                 }
+                // One attempt to get ready again; a repeated failure needs a running stream, so this cannot spin.
+                if (_keepOpen || _reprepareAfterRecording) QueueReprepare();
             }
         }
         if (_active is { } active) active.Fail("Blitztext wurde beendet.");
@@ -259,7 +261,11 @@ public sealed class Microphone : IDisposable
             // Whatever goes wrong, the dictation must end instead of waiting forever.
             Log.Error($"Microphone start failed: {ex.GetType().Name}: {ex.Message}");
             if (_active == recording) _active = null;
-            if (!_keepOpen) StopStream();
+            if (!_keepOpen)
+            {
+                StopStream();
+                if (_stream is { IsBluetooth: true }) CloseStream();
+            }
             recording.Fail("Aufnahme konnte nicht gestartet werden: " + ex.Message);
         }
     }
@@ -426,8 +432,8 @@ public sealed class Microphone : IDisposable
                 _active = null;
                 recording.EndedByDevice();
             }
-            // Comes back by itself when the device does (notification), or at the next dictation.
-            _reprepareAfterRecording = false;
+            // A re-prepare asked for during the recording (e.g. the new default device) runs now.
+            if (_reprepareAfterRecording) QueueReprepare();
         }
     }
 
@@ -701,6 +707,9 @@ public sealed class MicrophoneRecording
     /// <summary>True when the device had to be opened for this recording instead of waiting ready.</summary>
     public bool OpenedDevice { get; private set; }
 
+    /// <summary>True when the microphone went away during the recording.</summary>
+    public bool DeviceLost { get; private set; }
+
     /// <summary>Ends the recording after <paramref name="postRoll"/> more audio and returns it as 16 kHz mono.</summary>
     public Task<AudioClip> StopAsync(TimeSpan postRoll)
     {
@@ -779,6 +788,7 @@ public sealed class MicrophoneRecording
     {
         AudioLevel = 0;
         if (!TryEnd()) return;
+        DeviceLost = true;
         HandOver();
         _onEnded(null);
     }
@@ -832,11 +842,14 @@ public sealed class MicrophoneRecording
 /// </summary>
 public sealed class SystemAudioMuter
 {
-    private string? _mutedDeviceId;
+    /// <summary>Outputs Blitztext muted and has not unmuted yet, e.g. a headset that dropped meanwhile.</summary>
+    private readonly HashSet<string> _muted = [];
+    private bool _muting;
 
     public void Mute()
     {
-        if (_mutedDeviceId is not null) return;
+        if (_muting) return;
+        RestoreIfNeeded();
         try
         {
             using var enumerator = new MMDeviceEnumerator();
@@ -846,22 +859,35 @@ public sealed class SystemAudioMuter
             // Already silent: nothing to do and nothing to restore later.
             if (volume.Mute) return;
             volume.Mute = true;
-            _mutedDeviceId = device.ID;
+            _muted.Add(device.ID);
+            _muting = true;
         }
-        catch (COMException)
+        catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
         {
         }
     }
 
     public void RestoreIfNeeded()
     {
-        if (_mutedDeviceId is not { } id) return;
-        _mutedDeviceId = null;
+        _muting = false;
+        if (_muted.Count == 0) return;
         try
         {
             using var enumerator = new MMDeviceEnumerator();
-            using var device = enumerator.GetDevice(id);
-            device.AudioEndpointVolume.Mute = false;
+            foreach (var id in _muted.ToList())
+            {
+                try
+                {
+                    using var device = enumerator.GetDevice(id);
+                    // Gone for now (unplugged, Bluetooth off): try again next time.
+                    if (device.State != DeviceState.Active) continue;
+                    device.AudioEndpointVolume.Mute = false;
+                    _muted.Remove(id);
+                }
+                catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
+                {
+                }
+            }
         }
         catch (COMException)
         {

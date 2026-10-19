@@ -67,15 +67,21 @@ public sealed class HotkeyService : IDisposable
 
     public event EventHandler<HotkeyEvent>? HotkeyPressed;
 
-    private long _typedKeys;
+    private long _userInput;
+    private readonly LowLevelKeyboardProc _mouseProc;
+    private IntPtr _mouseHook;
 
-    /// <summary>Counts keys the user typed into apps (not shortcuts, not Blitztext's own input).</summary>
-    public long TypedKeys => Interlocked.Read(ref _typedKeys);
+    /// <summary>
+    /// Counts what could move the cursor in an app: typed keys (not shortcuts, not Blitztext's own input)
+    /// and mouse clicks.
+    /// </summary>
+    public long UserInput => Interlocked.Read(ref _userInput);
 
     public HotkeyService()
     {
         _ui = SynchronizationContext.Current ?? new SynchronizationContext();
         _proc = HookCallback;
+        _mouseProc = MouseCallback;
     }
 
     public bool IsRunning => _hook != IntPtr.Zero;
@@ -88,6 +94,7 @@ public sealed class HotkeyService : IDisposable
         {
             _threadId = GetCurrentThreadId();
             _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+            _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, GetModuleHandle(null), 0);
             ready.Set();
             while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
             {
@@ -95,7 +102,9 @@ public sealed class HotkeyService : IDisposable
                 DispatchMessage(ref message);
             }
             if (_hook != IntPtr.Zero) UnhookWindowsHookEx(_hook);
+            if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
             _hook = IntPtr.Zero;
+            _mouseHook = IntPtr.Zero;
         })
         {
             IsBackground = true,
@@ -136,6 +145,16 @@ public sealed class HotkeyService : IDisposable
     public void EndCapture() => _capture = null;
 
     // MARK: - Hook
+
+    /// <summary>Only counts clicks; never delays or swallows mouse input.</summary>
+    private IntPtr MouseCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam.ToInt32() is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN)
+        {
+            Interlocked.Increment(ref _userInput);
+        }
+        return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
@@ -200,7 +219,7 @@ public sealed class HotkeyService : IDisposable
                 }
             }
 
-            Interlocked.Increment(ref _typedKeys);
+            Interlocked.Increment(ref _userInput);
             if (_activeModifierCombo is { } held)
             {
                 // Strg+Win+→ switches desktops: that was no dictation.

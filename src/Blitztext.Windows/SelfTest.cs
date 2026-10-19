@@ -365,6 +365,7 @@ public static class SelfTest
 
         var (target, before) = await OpenNotepad();
         var report = new List<string>();
+        var cableOff = false;
         try
         {
             var text = "";
@@ -394,18 +395,28 @@ public static class SelfTest
             await Task.Delay(500);
             // Switching the device off takes PowerShell a few seconds, so it starts right away and runs
             // alongside the dictation.
+            var logLines = File.ReadLines(LogFile).Count();
+            var switchOff = "";
+            cableOff = true;
             var partial = await DictateOnce(state, target, cable.SpeakerId, speech, text.Length,
-                midway: () => SetCableEnabled(false), midwayAfter: TimeSpan.FromSeconds(0.5));
+                midway: async () => switchOff = await SetCableMicrophoneEnabled(false), midwayAfter: TimeSpan.FromSeconds(0.5));
             text += partial;
             var gone = VirtualCable() is null;
-            var noticed = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).Any(l => l.Contains("Microphone stopped delivering", StringComparison.Ordinal));
-            report.Add($"unplugged ({(gone ? "device gone" : "device could not be switched off")}, "
+            var noticed = File.ReadLines(LogFile).Skip(logLines).Any(l => l.Contains("Microphone stopped delivering", StringComparison.Ordinal));
+            report.Add($"unplugged ({(gone ? "device gone" : "device could not be switched off: " + switchOff)}, "
                 + $"{(noticed ? "recording ended with the device" : "no device error seen")}): '{partial.Trim()}' [{LastRecordingLog()}]");
             Expect(Words(partial) is { Length: > 0 } partWords && partWords[0] == expected[0], $"unplugged: got '{partial.Trim()}'");
             Expect(state.ActiveWorkflow is not { IsRecording: true }, "unplugged: still recording");
+            if (gone)
+            {
+                Expect(noticed, "unplugged: the recording did not notice the microphone going away");
+                Expect(Words(partial).Length < expected.Length, $"unplugged: expected only the part before the switch-off, got '{partial.Trim()}'");
+            }
 
-            await SetCableEnabled(true);
+            await SetCableMicrophoneEnabled(true);
+            cableOff = false;
             for (var i = 0; i < 40 && VirtualCable() is null; i++) await Task.Delay(250);
+            Expect(VirtualCable() is not null, "VB-CABLE did not come back");
             await Task.Delay(1500);
             target.Activate();
             await Task.Delay(500);
@@ -417,6 +428,7 @@ public static class SelfTest
         }
         finally
         {
+            if (cableOff) await SetCableMicrophoneEnabled(true);
             CloseNotepads(before);
             state.UpdateSettings(s =>
             {
@@ -427,20 +439,42 @@ public static class SelfTest
         }
     }
 
-    /// <summary>One dictation; returns the text it added to Notepad.</summary>
-    /// <summary>Switches VB-CABLE off or on, like unplugging a microphone.</summary>
-    private static async Task SetCableEnabled(bool enabled)
+    private static string LogFile => Path.Combine(AppPaths.LogsDirectory, "blitztext.log");
+
+    /// <summary>
+    /// Switches VB-CABLE's microphone endpoint off or on, as when a microphone is disabled in the Windows
+    /// sound settings or unplugged. Returns what PowerShell said, for the report.
+    /// </summary>
+    private static async Task<string> SetCableMicrophoneEnabled(bool enabled)
     {
         var verb = enabled ? "Enable" : "Disable";
-        using var process = Process.Start(new ProcessStartInfo("powershell.exe",
-            $"-NoProfile -Command \"Get-PnpDevice -Class MEDIA | Where-Object FriendlyName -like '*VB-Audio*' | {verb}-PnpDevice -Confirm:$false\"")
+        var start = new ProcessStartInfo("powershell.exe",
+            "-NoProfile -Command \"$ErrorActionPreference = 'Stop'; "
+            + $"Get-PnpDevice -Class AudioEndpoint | Where-Object FriendlyName -like 'CABLE Output*' | {verb}-PnpDevice -Confirm:$false\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-        });
-        if (process is not null) await process.WaitForExitAsync();
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("powershell did not start");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            return "timed out";
+        }
+        var said = ((await output) + " " + (await error)).Trim();
+        return process.ExitCode == 0 ? (said.Length == 0 ? "ok" : said) : $"exit {process.ExitCode}: {said}";
     }
 
+    /// <summary>One dictation; returns the text it added to Notepad.</summary>
     private static async Task<string> DictateOnce(AppState state, TargetApp target, string speakerId, float[] speech, int lengthBefore,
         Func<Task>? midway = null, TimeSpan midwayAfter = default)
     {
@@ -464,25 +498,32 @@ public static class SelfTest
     private static async Task<string> PlayAndCollect(AppState state, TargetApp target, WasapiOut output, float[] speech, int lengthBefore,
         Func<Task>? midway, TimeSpan midwayAfter)
     {
+        Task? midwayTask = null;
         Send(InputSender.VK_LCONTROL, false);
         Send(InputSender.VK_LWIN, false);
-        await Task.Delay(150);
-        output.Play();
-        await Task.Delay(400);
-        Expect(state.Status is TrayStatus.Recording, $"tray shows {state.Status} while recording");
-        var rest = (int)(speech.Length * 1000L / AudioClip.SampleRate) - 60 - 400;
-        Task? midwayTask = null;
-        if (midway is not null)
+        try
         {
-            var before = Math.Max(0, (int)midwayAfter.TotalMilliseconds - 400);
-            await Task.Delay(before);
-            midwayTask = midway();
-            rest = Math.Max(0, rest - before);
+            await Task.Delay(150);
+            output.Play();
+            await Task.Delay(400);
+            Expect(state.Status is TrayStatus.Recording, $"tray shows {state.Status} while recording");
+            var rest = (int)(speech.Length * 1000L / AudioClip.SampleRate) - 60 - 400;
+            if (midway is not null)
+            {
+                var before = Math.Max(0, (int)midwayAfter.TotalMilliseconds - 400);
+                await Task.Delay(before);
+                midwayTask = midway();
+                rest = Math.Max(0, rest - before);
+            }
+            // Let go a moment before the last word has fully sounded, as people do.
+            await Task.Delay(rest);
         }
-        // Let go a moment before the last word has fully sounded, as people do.
-        await Task.Delay(rest);
-        Send(InputSender.VK_LWIN, true);
-        Send(InputSender.VK_LCONTROL, true);
+        finally
+        {
+            // Never leave Strg+Win held down, whatever failed.
+            Send(InputSender.VK_LWIN, true);
+            Send(InputSender.VK_LCONTROL, true);
+        }
         if (midwayTask is not null) await midwayTask;
 
         for (var i = 0; i < 300; i++)
@@ -498,7 +539,7 @@ public static class SelfTest
             if (state.ActiveWorkflow?.Phase is WorkflowPhase.Error error) throw new InvalidOperationException("dictation failed: " + error.Message);
             if (state.Status is TrayStatus.Failure)
             {
-                var line = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).LastOrDefault(l => l.Contains("ended with an error", StringComparison.Ordinal));
+                var line = File.ReadLines(LogFile).LastOrDefault(l => l.Contains("ended with an error", StringComparison.Ordinal));
                 throw new InvalidOperationException("dictation failed: " + (line ?? "no log"));
             }
         }
@@ -508,7 +549,7 @@ public static class SelfTest
     /// <summary>The app's own note about the last recording, e.g. how fast the microphone answered.</summary>
     private static string LastRecordingLog()
     {
-        var line = File.ReadLines(Path.Combine(AppPaths.LogsDirectory, "blitztext.log")).LastOrDefault(l => l.Contains(" Recorded ", StringComparison.Ordinal));
+        var line = File.ReadLines(LogFile).LastOrDefault(l => l.Contains(" Recorded ", StringComparison.Ordinal));
         return line is null ? "no log" : line[(line.IndexOf(" Recorded ", StringComparison.Ordinal) + 1)..];
     }
 

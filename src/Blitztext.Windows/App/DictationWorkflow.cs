@@ -27,6 +27,7 @@ public sealed partial class DictationWorkflow : ObservableObject
     public const string RecordingMessage = "Aufnahme läuft ...";
     public const string TranscribingMessage = "Wird transkribiert ...";
     public const string NothingRecognized = "Keine Aufnahme erkannt.";
+    public const string MicrophoneLost = "Das Mikrofon wurde während der Aufnahme getrennt.";
     public const string SilentMicrophone =
         "Das Mikrofon liefert keinen Ton. In Windows unter Einstellungen > Datenschutz und Sicherheit > Mikrofon den Zugriff für Desktop-Apps erlauben oder ein anderes Mikrofon wählen.";
 
@@ -57,6 +58,12 @@ public sealed partial class DictationWorkflow : ObservableObject
     /// <summary>Press number of the shortcut that started this dictation; 0 when started by click.</summary>
     public long StartedByPress { get; init; }
 
+    /// <summary>
+    /// The shortcut is held for this dictation and its release ends it. Then a lost microphone does not
+    /// end the dictation at once: pasting with the keys still down could turn into Win+Strg+V.
+    /// </summary>
+    public bool EndsOnRelease { get; init; }
+
     /// <summary>True once the mode was chosen explicitly (another modifier), so rules no longer apply.</summary>
     public bool ModeIsExplicit { get; private set; }
 
@@ -77,9 +84,17 @@ public sealed partial class DictationWorkflow : ObservableObject
     {
         // After the release the result covers it.
         if (Phase is not WorkflowPhase.Running { Message: RecordingMessage }) return;
-        if (error is not null) Phase = new WorkflowPhase.Error(error);
-        // The microphone went away mid-dictation: write down what came so far.
-        else if (IsRecording) Stop();
+        if (error is not null)
+        {
+            Phase = new WorkflowPhase.Error(error);
+        }
+        else if (IsRecording)
+        {
+            // The microphone went away mid-dictation: the audio so far is kept. The sound comes back now;
+            // the text follows at the release, or right away when no key is held.
+            CaptureEnded?.Invoke();
+            if (!EndsOnRelease) Stop();
+        }
     }
 
     /// <summary>Changes the mode while the dictation has not reached its AI step.</summary>
@@ -134,6 +149,11 @@ public sealed partial class DictationWorkflow : ObservableObject
         if (recording.ErrorMessage is { } error)
         {
             Phase = new WorkflowPhase.Error(error);
+            return;
+        }
+        if (recording.DeviceLost && (clip.Duration < TranscriptionQualityService.MinimumRecordingDuration || recording.WasSilent))
+        {
+            Phase = new WorkflowPhase.Error(MicrophoneLost);
             return;
         }
         if (TranscriptionQualityService.ShouldRejectRecording(duration))

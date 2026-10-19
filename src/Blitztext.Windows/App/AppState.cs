@@ -53,10 +53,10 @@ public sealed partial class AppState : ObservableObject
     private FocusedField? _activeField;
     private CancellationTokenSource? _fieldRead;
     /// <summary>
-    /// The last dictation Blitztext pasted, into which window and how many keys the user had typed by
-    /// then; for fields UI Automation cannot read (e.g. Outlook).
+    /// The last dictation Blitztext pasted, into which window and the user input count by then (keys,
+    /// clicks); for fields UI Automation cannot read (e.g. Outlook).
     /// </summary>
-    private (IntPtr Window, string Text, DateTime At, long TypedKeys)? _lastPaste;
+    private (IntPtr Window, string Text, DateTime At, long UserInput)? _lastPaste;
     private static readonly TimeSpan LastPasteMemory = TimeSpan.FromMinutes(2);
     private CancellationTokenSource? _statusReset;
     private CancellationTokenSource? _workflowCleanup;
@@ -326,6 +326,7 @@ public sealed partial class AppState : ObservableObject
             () => Settings.AiSeesFieldContext ? _activeField?.AiContext : null))
         {
             StartedByPress = press,
+            EndsOnRelease = source == WorkflowLaunchSource.HotkeyBackground && Settings.HotkeyMode == HotkeyMode.Hold,
         };
         workflow.Output += text => HandleWorkflowOutput(workflow, text);
         workflow.PhaseChanged += phase => HandleWorkflowPhaseChange(phase, workflow);
@@ -451,14 +452,15 @@ public sealed partial class AppState : ObservableObject
                 output = InsertionFitter.Fit(text, field.TextBefore, field.TextAfter);
             }
             else if (_lastPaste is { } last && _activePasteTarget?.Window == last.Window
-                && DateTime.UtcNow - last.At < LastPasteMemory && Hotkeys.TypedKeys == last.TypedKeys)
+                && DateTime.UtcNow - last.At < LastPasteMemory && Hotkeys.IsRunning && Hotkeys.UserInput == last.UserInput)
             {
-                // The field could not be read and nothing was typed since: the cursor most likely still sits
-                // behind the last dictation. Only the space and a capital, no lowercasing on a guess.
+                // The field could not be read and nothing was typed or clicked since: the cursor most likely
+                // still sits behind the last dictation. Only the space and a capital, no lowercasing on a guess.
                 var fitted = InsertionFitter.Fit(text, last.Text, "");
                 var start = fitted.Length - fitted.TrimStart().Length;
-                output = start < fitted.Length && char.IsLower(fitted[start]) && char.IsUpper(text.TrimStart().FirstOrDefault())
-                    ? fitted[..start] + char.ToUpper(fitted[start], System.Globalization.CultureInfo.CurrentCulture) + fitted[(start + 1)..]
+                var original = text.TrimStart();
+                output = start < fitted.Length && original.Length > 0 && char.IsLower(fitted[start]) && char.IsUpper(original[0])
+                    ? fitted[..start] + original[0] + fitted[(start + 1)..]
                     : fitted;
             }
         }
@@ -762,7 +764,7 @@ public sealed partial class AppState : ObservableObject
         // Win or Alt of the shortcut may still be down; Win+Strg+V would open the sound panel.
         await InputSender.WaitForModifiersReleasedAsync(TimeSpan.FromSeconds(1.5));
         var foreground = TargetApp.CaptureForeground();
-        _lastPaste = foreground is null ? null : (foreground.Window, text, DateTime.UtcNow, Hotkeys.TypedKeys);
+        _lastPaste = foreground is null ? null : (foreground.Window, text, DateTime.UtcNow, Hotkeys.UserInput);
         if (Settings.RestoreClipboardAfterPaste)
         {
             Clipboard.Paste(text, InputSender.SendPaste);
