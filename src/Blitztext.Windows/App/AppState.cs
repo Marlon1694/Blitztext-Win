@@ -903,7 +903,7 @@ public static class WhatsNew
 
     public static readonly Item[] Items =
     [
-        new("", "Blitztext für Windows",
+        new("", "Blitztext Windows",
             "Strg + Win halten, sprechen, loslassen. Die Spracherkennung läuft auf diesem PC, der Text landet direkt am Cursor."),
         new("", "Aufnahme sichtbar",
             "Unten am Bildschirm zeigt eine kleine lila Anzeige, dass Blitztext zuhört. Sie bewegt sich mit deiner Stimme, ein Klick stoppt die Aufnahme."),

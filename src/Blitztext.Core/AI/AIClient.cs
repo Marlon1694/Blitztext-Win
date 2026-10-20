@@ -92,7 +92,7 @@ public sealed class AIClient(IApiKeyStore keys, HttpClient? httpClient = null)
         }
         if (config.Provider == AIProvider.OpenRouter)
         {
-            request.Headers.TryAddWithoutValidation("X-Title", "Blitztext für Windows");
+            request.Headers.TryAddWithoutValidation("X-Title", "Blitztext Windows");
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

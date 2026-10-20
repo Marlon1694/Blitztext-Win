@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Blitztext für Windows is a port of Blitztext for macOS (https://github.com/cmagnussen/blitztext-app, MIT License, Copyright (c) 2026 Blitztext contributors). The text post-processing, the cursor fitting, the paragraph rules, the hallucination filter, the clipboard restore timing and the prompts of the AI modes follow that code.
+Blitztext Windows is a port of Blitztext for macOS (https://github.com/cmagnussen/blitztext-app, MIT License, Copyright (c) 2026 Blitztext contributors). The text post-processing, the cursor fitting, the paragraph rules, the hallucination filter, the clipboard restore timing and the prompts of the AI modes follow that code.
 
 It uses the following components. Speech models are downloaded on demand and are not modified.
 

@@ -1,4 +1,4 @@
-; Inno Setup script for Blitztext für Windows.
+; Inno Setup script for Blitztext Windows.
 ; Build: iscc /DAppVersion=1.0.0 /DPublishDir=..\publish installer\Blitztext.iss
 
 #ifndef AppVersion
@@ -8,9 +8,9 @@
   #define PublishDir "..\publish"
 #endif
 
-#define AppName "Blitztext"
+#define AppName "Blitztext Windows"
 #define AppExe "Blitztext.exe"
-#define AppPublisher "Blitztext für Windows contributors"
+#define AppPublisher "Blitztext Windows contributors"
 #define AppUrl "https://github.com/Marlon1694/Blitztext-Win"
 
 [Setup]
@@ -61,6 +61,11 @@ Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Shortcuts of version 1.0.0, which was still called "Blitztext".
+Type: files; Name: "{autoprograms}\Blitztext.lnk"
+Type: files; Name: "{autodesktop}\Blitztext.lnk"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

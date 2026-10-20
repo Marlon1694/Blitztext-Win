@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src/Blitztext.Windows/Assets/Logo.png" width="96" height="96" alt="Blitztext für Windows">
+  <img src="src/Blitztext.Windows/Assets/Logo.png" width="96" height="96" alt="Blitztext Windows">
 </p>
 
-<h1 align="center">Blitztext für Windows</h1>
+<h1 align="center">Blitztext Windows</h1>
 
 <p align="center">
   <b>Sprechen. Text. Fertig.</b><br>

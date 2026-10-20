@@ -6,9 +6,9 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!-- Lets the Windows app build on Linux and macOS too (CI and contributors). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Version>1.0.0</Version>
-    <Company>Blitztext für Windows contributors</Company>
-    <Product>Blitztext für Windows</Product>
+    <Version>1.0.1</Version>
+    <Company>Blitztext Windows contributors</Company>
+    <Product>Blitztext Windows</Product>
     <Copyright>Copyright (c) 2026 Blitztext contributors</Copyright>
   </PropertyGroup>
 </Project>

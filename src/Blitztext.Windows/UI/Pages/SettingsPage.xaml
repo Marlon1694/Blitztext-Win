@@ -177,7 +177,7 @@
                     <Border Style="{StaticResource SectionCard}" Padding="16,14,16,14">
                         <StackPanel>
                             <DockPanel Margin="0,0,0,10">
-                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Tonal}" Click="OnGitHub" ToolTip="Blitztext für Windows ist Open Source.">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Tonal}" Click="OnGitHub" ToolTip="Blitztext Windows ist Open Source.">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Style="{StaticResource Icon}" Text="&#xE943;" FontSize="12" Foreground="{DynamicResource Brush.AccentText}" Margin="0,0,6,0" />
                                         <TextBlock Text="Auf GitHub ansehen" />

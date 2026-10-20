@@ -15,7 +15,7 @@
         <Grid Margin="16,14,16,10">
             <StackPanel>
                 <TextBlock Text="Willkommen" Style="{StaticResource Text.Title}" />
-                <TextBlock Text="bei Blitztext für Windows" Style="{StaticResource Text.Caption}" />
+                <TextBlock Text="bei Blitztext Windows" Style="{StaticResource Text.Caption}" />
             </StackPanel>
             <Button Style="{StaticResource Button.Subtle}" Content="Später" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnLater" />
         </Grid>
