@@ -184,7 +184,7 @@ public sealed class SingleInstance : IDisposable
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", Name, PipeDirection.Out);
+            using var client = new NamedPipeClientStream(".", Name, PipeDirection.Out, PipeOptions.CurrentUserOnly);
             client.Connect(2000);
             var payload = Encoding.UTF8.GetBytes(string.Join('\n', args.Prepend("blitztext")));
             client.Write(payload, 0, payload.Length);
@@ -207,7 +207,7 @@ public sealed class SingleInstance : IDisposable
             {
                 try
                 {
-                    await using var server = new NamedPipeServerStream(Name, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    await using var server = new NamedPipeServerStream(Name, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await server.WaitForConnectionAsync(cancel.Token);
                     using var reader = new StreamReader(server, Encoding.UTF8);
                     var lines = (await reader.ReadToEndAsync(cancel.Token)).Split('\n');

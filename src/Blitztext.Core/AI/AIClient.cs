@@ -20,6 +20,9 @@ public sealed class AIClientException(string message) : Exception(message)
 
     public static AIClientException InvalidAddress() => new("Die Adresse des Modell-Anbieters ist ungültig.");
 
+    public static AIClientException InsecureAddress() =>
+        new("Unverschlüsselte Adressen (http://) sind nur für diesen PC erlaubt, z. B. http://localhost:11434/v1. Bitte https:// verwenden.");
+
     public static AIClientException Refused() => new("Der Modell-Anbieter hat die Anfrage abgelehnt.");
 
     public static AIClientException EmptyResponse() =>
@@ -72,6 +75,8 @@ public sealed class AIClient(IApiKeyStore keys, HttpClient? httpClient = null)
         {
             throw AIClientException.InvalidAddress();
         }
+        // Key and text must not cross the network unencrypted.
+        if (url.Scheme == "http" && !url.IsLoopback) throw AIClientException.InsecureAddress();
         // No temperature: several current models only accept their default.
         var body = new JsonObject
         {
@@ -156,6 +161,11 @@ public sealed class AIClient(IApiKeyStore keys, HttpClient? httpClient = null)
         var model = config.EffectiveModel;
         var baseUrl = TrimmedBase(config.EffectiveBaseUrl);
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)) baseUrl = baseUrl[..^3];
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https"))
+        {
+            throw AIClientException.InvalidAddress();
+        }
+        if (address.Scheme == "http" && !address.IsLoopback) throw AIClientException.InsecureAddress();
         var usesAnthropicApi = baseUrl.Equals(AIProvider.Anthropic.DefaultBaseUrl(), StringComparison.OrdinalIgnoreCase);
 
         var client = new AnthropicClient

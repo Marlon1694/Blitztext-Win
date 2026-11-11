@@ -67,6 +67,20 @@ public class SettingsTests
         Assert.Equal(MicrophoneStandby.AfterDictation, SettingsSerializer.Deserialize("""{ "app": { "microphoneStandby": "sometimes" } }""").App.MicrophoneStandby);
     }
 
+    [Theory]
+    [InlineData(AIProvider.Custom, "http://192.168.1.20:11434/v1")]
+    [InlineData(AIProvider.Custom, "http://example.com/v1")]
+    [InlineData(AIProvider.Anthropic, "http://example.com")]
+    public async Task UnencryptedAddressesOutsideThisPcAreRefused(AIProvider provider, string baseUrl)
+    {
+        var keys = new InMemoryApiKeyStore();
+        keys.Save(provider, "test-key");
+        var client = new AIClient(keys);
+        var error = await Assert.ThrowsAsync<AIClientException>(() =>
+            client.CompleteAsync("x", "y", new AIProviderConfig(provider) { BaseUrl = baseUrl }));
+        Assert.Contains("http://", error.Message);
+    }
+
     [Fact]
     public void BrokenFileGivesDefaults()
     {

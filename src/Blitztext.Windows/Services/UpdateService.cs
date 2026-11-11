@@ -23,6 +23,10 @@ public sealed partial class UpdateService : ObservableObject
     [ObservableProperty] private bool _isInstalling;
     [ObservableProperty] private string? _availableVersion;
     private string? _setupUrl;
+    private string? _setupSha256;
+
+    /// <summary>Setups are only ever taken from this project's own release downloads.</summary>
+    private static string DownloadPrefix => $"{RepositoryUrl}/releases/download/";
 
     public static Version CurrentVersion =>
         Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(1, 0, 0);
@@ -61,10 +65,15 @@ public sealed partial class UpdateService : ObservableObject
             var release = JsonNode.Parse(json);
             var tag = release?["tag_name"]?.GetValue<string>() ?? "";
             var latest = ParseVersion(tag);
-            _setupUrl = (release?["assets"] as JsonArray)?
-                .Select(a => a?["browser_download_url"]?.GetValue<string>())
-                .FirstOrDefault(url => url is not null && url.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                    && url.Contains("Setup", StringComparison.OrdinalIgnoreCase));
+            var setup = (release?["assets"] as JsonArray)?.FirstOrDefault(a =>
+                a?["browser_download_url"]?.GetValue<string>() is { } url
+                && url.StartsWith(DownloadPrefix, StringComparison.OrdinalIgnoreCase)
+                && url.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                && url.Contains("Setup", StringComparison.OrdinalIgnoreCase));
+            _setupUrl = setup?["browser_download_url"]?.GetValue<string>();
+            // GitHub's own checksum of the uploaded file, e.g. "sha256:ab12...".
+            var digest = setup?["digest"]?.GetValue<string>();
+            _setupSha256 = digest is not null && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? digest[7..] : null;
             if (latest is not null && latest > CurrentVersion)
             {
                 AvailableVersion = latest.ToString(3);
@@ -81,6 +90,7 @@ public sealed partial class UpdateService : ObservableObject
             // No published release yet, so nothing is newer than this build.
             AvailableVersion = null;
             _setupUrl = null;
+            _setupSha256 = null;
             StatusText = $"Blitztext ist aktuell (Version {CurrentVersionText}).";
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
@@ -97,7 +107,8 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>Downloads the setup and runs it; Blitztext quits so the setup can replace it.</summary>
     public async Task<bool> InstallAsync()
     {
-        if (_setupUrl is null)
+        // Without a checksum to compare, nothing is run automatically.
+        if (_setupUrl is null || _setupSha256 is null)
         {
             OpenReleasesPage();
             return false;
@@ -106,11 +117,23 @@ public sealed partial class UpdateService : ObservableObject
         StatusText = "Update wird geladen …";
         try
         {
-            var path = Path.Combine(Path.GetTempPath(), $"Blitztext-Setup-{AvailableVersion}.exe");
+            // An own, fresh folder, so no other program can have put a file there beforehand.
+            var folder = Directory.CreateTempSubdirectory("Blitztext-Update-").FullName;
+            var path = Path.Combine(folder, $"Blitztext-Setup-{AvailableVersion}.exe");
+            string actual;
             await using (var source = await Http.GetStreamAsync(_setupUrl))
             await using (var target = File.Create(path))
             {
                 await source.CopyToAsync(target);
+                target.Position = 0;
+                actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(target));
+            }
+            if (!string.Equals(actual, _setupSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(path);
+                Log.Error("Update rejected: the checksum of the download does not match the release");
+                StatusText = "Update abgelehnt: Die Prüfsumme der geladenen Datei stimmt nicht.";
+                return false;
             }
             Process.Start(new ProcessStartInfo(path, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
             {
